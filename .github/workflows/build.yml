@@ -16,19 +16,25 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v5
       - name: Unit tests
-        run: ./gradlew :shared:test
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --console=plain :shared:test 2>&1 | tee test.log
       - name: Build debug APKs
-        run: ./gradlew :mobile:assembleDebug :wear:assembleDebug
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --console=plain :mobile:assembleDebug :wear:assembleDebug 2>&1 | tee build.log
       - name: Screenshots
         shell: bash
         run: |
           set -o pipefail
           ./gradlew --console=plain :mobile:recordPaparazziDebug :wear:recordPaparazziDebug 2>&1 | tee screenshots.log
-      - name: Report screenshot errors
+      - name: Report errors
         if: failure()
         shell: bash
         run: |
-          grep -hE "e: |What went wrong|Exception|Caused by|FAILED" -A2 screenshots.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+          grep -hE "e: |What went wrong|Exception|Caused by|FAILED|rror" -A3 *.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
           for x in $(find . -path '*test-results*' -name '*.xml'); do
             grep -A4 "<failure" "$x" | head -12 | while IFS= read -r l; do echo "::error::$l"; done
           done
