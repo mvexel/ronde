@@ -87,6 +87,7 @@ private fun App(repo: WorkoutRepository) {
     val bundle by repo.bundle.collectAsStateWithLifecycle()
     val session by ExerciseService.session.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<Workout?>(null) }
+    var picking by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { runCatching { repo.load() } }
 
@@ -94,7 +95,8 @@ private fun App(repo: WorkoutRepository) {
     when {
         s != null && s.ended -> Summary(s) { ExerciseService.dismiss(); selected = null }
         s != null -> ActiveWorkout(s)
-        selected != null -> WorkoutDetail(selected!!, onBack = { selected = null })
+        selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
+        selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onBack = { selected = null })
         else -> WorkoutList(bundle?.workouts.orEmpty()) { selected = it }
     }
 }
@@ -132,7 +134,7 @@ internal fun WorkoutList(workouts: List<Workout>, onPick: (Workout) -> Unit) {
 }
 
 @Composable
-private fun WorkoutDetail(w: Workout, onBack: () -> Unit) {
+private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val perms = buildList {
         // Wear OS 6 (API 36) replaces BODY_SENSORS with the Health permission for heart rate.
@@ -154,6 +156,18 @@ private fun WorkoutDetail(w: Workout, onBack: () -> Unit) {
         item { Text(w.name, style = MaterialTheme.typography.title3, textAlign = TextAlign.Center) }
         item {
             Button(onClick = { launcher.launch(perms) }) { Text("Start") }
+        }
+        if (w.usesPower) {
+            item {
+                val store = remember { PowerMeterStore(ctx) }
+                Chip(
+                    onClick = onPickPower,
+                    label = { Text("Power meter") },
+                    secondaryLabel = { Text(store.name ?: "None chosen") },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
         items(w.steps.size) { i -> StepRow(w, w.steps[i]) }
         item {

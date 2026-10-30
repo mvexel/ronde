@@ -76,6 +76,19 @@ class WearScreenshotTest {
         ActiveWorkout(session(Samples.ride, 3, 312.0, power = 0.0, hr = 140.0, paused = true))
     }
 
+    @Test fun powerMeterPicker() = snap {
+        PowerMeterPicker(
+            devices = listOf(
+                FoundPowerMeter("AA:BB:CC:00:00:01", "Stryd 4F2A"),
+                FoundPowerMeter("AA:BB:CC:00:00:02", "Favero Assioma"),
+            ),
+            scanning = false,
+            selectedAddress = "AA:BB:CC:00:00:01",
+            selectedName = "Stryd 4F2A",
+            onPick = {}, onForget = {}, onRescan = {}, onBack = {},
+        )
+    }
+
     @Test fun summary() = snap {
         Summary(session(Samples.ride, Samples.ride.steps.size, null, ended = true)) {}
     }
