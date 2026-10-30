@@ -43,6 +43,8 @@ import net.mvexel.intervalswatch.shared.ScreenSettings
 import net.mvexel.intervalswatch.shared.Sport
 import net.mvexel.intervalswatch.shared.resolveSlots
 import net.mvexel.intervalswatch.wear.ui.Rb
+import net.mvexel.intervalswatch.wear.ui.HEART
+import net.mvexel.intervalswatch.wear.ui.HeartText
 import net.mvexel.intervalswatch.wear.ui.RbType
 import net.mvexel.intervalswatch.wear.ui.kindColor
 import java.time.LocalTime
@@ -236,7 +238,7 @@ internal fun ActiveWorkout(
         val bottomLabel = fieldLabel(s, slots.bottomEdge).let { if (slots.bottomEdge == Field.TOTAL_TIME) "total" else it }
         CurvedLayout(anchor = 90f, angularDirection = CurvedDirection.Angular.CounterClockwise) {
             curvedText(
-                listOf(bottomValue, bottomLabel).filter { it.isNotEmpty() }.joinToString(" "),
+                listOf(bottomValue, bottomLabel.replace(HEART, "HR")).filter { it.isNotEmpty() }.joinToString(" "),
                 color = Rb.ink2, fontSize = RbType.edge, fontWeight = FontWeight.Medium,
                 angularDirection = CurvedDirection.Angular.CounterClockwise,
             )
@@ -292,7 +294,7 @@ private fun TargetLine(s: Session, nextNear: Boolean) {
 @Composable
 private fun Flank(s: Session, field: Field, clock: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(fieldLabel(s, field).ifEmpty { " " }, style = RbType.label, color = Rb.ink2, maxLines = 1)
+        HeartText(fieldLabel(s, field).ifEmpty { " " }, RbType.label, Rb.ink2)
         val value = fieldValue(s, field, clock)
         Text(value ?: fieldWaiting(s, field), style = RbType.field, color = if (value == null) Rb.ink3 else Rb.ink, maxLines = 1, textAlign = TextAlign.Center)
     }

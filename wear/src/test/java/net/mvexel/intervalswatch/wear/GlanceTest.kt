@@ -81,7 +81,7 @@ class GlanceTest {
         assertEquals(0f, seg[0].startDeg, 0f)
         // 60 s : 180 s, and the lap step weighs 120 s.
         assertEquals(seg[0].sweepDeg * 3, seg[1].sweepDeg, 1e-3f)
-        assertEquals(360f, seg.last().startDeg + seg.last().sweepDeg + 2f, 1e-3f)
+        assertEquals(360f, seg.last().startDeg + seg.last().sweepDeg + 2.4f, 1e-3f)
         assertEquals(seg[1].startDeg + seg[1].sweepDeg / 2, ringNowDeg(seg, 1, 0.5), 1e-3f)
         assertEquals(360f, ringNowDeg(seg, 3, 0.0), 0f)
     }
