@@ -78,6 +78,92 @@ class ParserTest {
     }
 
     @Test
+    fun stridesRecoveryByPaceIsRecovery() {
+        // Real intervals.icu data (owner, A07): 4x 20s at 5:30-5:00/km, 1m at 11:00-9:00/km. No text, no intensity.
+        val strides = """
+        [{
+          "id": 9, "type": "Run", "category": "WORKOUT", "name": "Strides",
+          "start_date_local": "2026-11-04T06:30:00",
+          "workout_doc": {
+            "threshold_pace": 4.0, "pace_units": "MINS_KM", "target": "PACE",
+            "steps": [
+              {"reps": 4, "steps": [
+                {"duration": 20, "pace": {"start": 330, "end": 300, "units": "secs/km"}, "_pace": {"start": 3.03, "end": 3.33}},
+                {"duration": 60, "pace": {"start": 660, "end": 540, "units": "secs/km"}, "_pace": {"start": 1.515, "end": 1.852}}
+              ]}
+            ]
+          }
+        }]
+        """.trimIndent()
+        val w = IntervalsParser.parseEvents(strides).single()
+        assertEquals(8, w.steps.size)
+        assertEquals(StepKind.ACTIVE, w.steps[0].kind)
+        assertEquals("Work", w.steps[0].label)
+        assertEquals("1/4", w.steps[0].repeat)
+        assertEquals(StepKind.REST, w.steps[1].kind)
+        assertEquals("Recovery", w.steps[1].label)
+        assertEquals("1/4", w.steps[1].repeat)
+        assertEquals("4/4", w.steps[7].repeat)
+        assertEquals("Recovery", w.steps[7].label)
+    }
+
+    @Test
+    fun powerRecoveryInRepeatIsRecovery() {
+        val doc = """
+        [{"id": 11, "type": "Ride", "category": "WORKOUT", "start_date_local": "2026-11-04T07:00:00",
+          "workout_doc": {"ftp": 280, "target": "POWER", "steps": [
+            {"reps": 4, "steps": [
+              {"duration": 480, "power": {"value": 110, "units": "%ftp"}},
+              {"duration": 240, "power": {"value": 50, "units": "%ftp"}}
+            ]}
+          ]}}]
+        """.trimIndent()
+        val w = IntervalsParser.parseEvents(doc).single()
+        assertEquals(StepKind.ACTIVE, w.steps[0].kind)
+        assertEquals("Work", w.steps[0].label)
+        assertEquals(StepKind.REST, w.steps[1].kind)
+        assertEquals("Recovery", w.steps[1].label)
+        assertEquals("4/4", w.steps[7].repeat)
+    }
+
+    @Test
+    fun singleStepBlockIsUnchanged() {
+        val doc = """
+        [{"id": 12, "type": "Run", "category": "WORKOUT", "start_date_local": "2026-11-04T06:30:00",
+          "workout_doc": {"threshold_pace": 4.0, "pace_units": "MINS_KM", "target": "PACE", "steps": [
+            {"reps": 3, "steps": [
+              {"duration": 60, "pace": {"value": 60, "units": "%pace"}}
+            ]}
+          ]}}]
+        """.trimIndent()
+        val w = IntervalsParser.parseEvents(doc).single()
+        assertEquals(3, w.steps.size)
+        assertTrue(w.steps.all { it.kind == StepKind.ACTIVE && it.label == "Work" })
+    }
+
+    @Test
+    fun restStepKeepsItsOwnText() {
+        val doc = """
+        [{"id": 13, "type": "Run", "category": "WORKOUT", "start_date_local": "2026-11-04T06:30:00",
+          "workout_doc": {"steps": [{"duration": 60, "intensity": "recovery", "text": "Work"}]}}]
+        """.trimIndent()
+        val s = IntervalsParser.parseEvents(doc).single().steps.single()
+        assertEquals(StepKind.REST, s.kind)
+        assertEquals("Work", s.label)
+    }
+
+    @Test
+    fun recoveryTextWithoutIntensityIsRest() {
+        val doc = """
+        [{"id": 10, "type": "Run", "category": "WORKOUT", "start_date_local": "2026-11-04T06:30:00",
+          "workout_doc": {"steps": [{"duration": 90, "text": "Recover"}]}}]
+        """.trimIndent()
+        val s = IntervalsParser.parseEvents(doc).single().steps.single()
+        assertEquals(StepKind.REST, s.kind)
+        assertEquals("Recover", s.label)
+    }
+
+    @Test
     fun runPaceDistanceAndLap() {
         val w = IntervalsParser.parseEvents(run).single()
         assertEquals(Sport.RUN, w.sport)

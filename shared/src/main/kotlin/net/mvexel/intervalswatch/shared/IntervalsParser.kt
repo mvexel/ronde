@@ -22,6 +22,11 @@ object IntervalsParser {
         explicitNulls = false
     }
 
+    private val RECOVERY_TEXT = Regex("\\b(recover\\w*|rest)\\b", RegexOption.IGNORE_CASE)
+
+    /** An untexted step in a repeat block whose target is below this share of the block's hardest one is a recovery. */
+    private const val EASY_RATIO = 0.85
+
     fun parseEvents(body: String): List<Workout> =
         json.decodeFromString<List<EventDto>>(body)
             .filter { it.category == null || it.category == "WORKOUT" }
@@ -56,54 +61,96 @@ object IntervalsParser {
         else -> Sport.OTHER
     }
 
-    private fun flatten(steps: List<StepDto>, doc: WorkoutDocDto, prefix: String?): List<WorkoutStep> {
+    private fun flatten(
+        steps: List<StepDto>,
+        doc: WorkoutDocDto,
+        prefix: String?,
+        easy: Set<Int> = emptySet(),
+    ): List<WorkoutStep> {
         val out = mutableListOf<WorkoutStep>()
-        for (s in steps) {
+        steps.forEachIndexed { i, s ->
             val children = s.steps
             if (!children.isNullOrEmpty()) {
                 val reps = (s.reps ?: 1).coerceAtLeast(1)
+                val easyChildren = easyIndices(children, doc)
                 for (r in 1..reps) {
                     val label = listOfNotNull(prefix, "$r/$reps").joinToString(" · ")
-                    out += flatten(children, doc, label)
+                    out += flatten(children, doc, label, easyChildren)
                 }
             } else {
-                out += toStep(s, doc, prefix)
+                out += toStep(s, doc, prefix, forceRest = i in easy)
             }
         }
         return out
     }
 
-    private fun toStep(s: StepDto, doc: WorkoutDocDto, repeat: String?): WorkoutStep {
-        val kind = when {
-            s.warmup == true -> StepKind.WARMUP
-            s.cooldown == true -> StepKind.COOLDOWN
-            s.intensity == "rest" || s.intensity == "recovery" -> StepKind.REST
-            s.intensity == "warmup" -> StepKind.WARMUP
-            s.intensity == "cooldown" -> StepKind.COOLDOWN
-            else -> StepKind.ACTIVE
-        }
+    private fun targetsOf(s: StepDto, doc: WorkoutDocDto): List<Target> {
         val ramp = s.ramp == true
-        val targets = listOfNotNull(
+        return listOfNotNull(
             resolve(Metric.POWER, s.power, s.resolvedPower, doc, ramp),
             resolve(Metric.PACE, s.pace, s.resolvedPace, doc, ramp),
             resolve(Metric.HEART_RATE, s.hr, s.resolvedHr, doc, ramp),
             resolve(Metric.CADENCE, s.cadence, null, doc, ramp),
         )
+    }
+
+    private fun primaryOf(doc: WorkoutDocDto, targets: List<Target>): Metric? {
         val preferred = when (doc.target) {
             "POWER" -> Metric.POWER
             "HR" -> Metric.HEART_RATE
             "PACE" -> Metric.PACE
             else -> null
         }
-        val primary = preferred?.takeIf { p -> targets.any { it.metric == p } }
+        return preferred?.takeIf { p -> targets.any { it.metric == p } }
             ?: targets.firstOrNull { it.metric != Metric.CADENCE }?.metric
+    }
+
+    /**
+     * Indices of steps in a repeat block that are recoveries by target alone: no text, no intensity,
+     * and a primary target under [EASY_RATIO] of the block's hardest step on the same metric.
+     * Higher is harder for power, HR and speed, so a lower midpoint is an easier target.
+     * A single-step block has nothing to compare with and is left alone.
+     */
+    private fun easyIndices(children: List<StepDto>, doc: WorkoutDocDto): Set<Int> {
+        if (children.size < 2) return emptySet()
+        val primaries = children.map { c ->
+            val targets = targetsOf(c, doc)
+            primaryOf(doc, targets)?.let { m -> targets.first { it.metric == m } }
+        }
+        val hardest = primaries.filterNotNull().groupBy { it.metric }
+            .mapValues { (_, ts) -> ts.maxOf { mid(it) } }
+        return children.indices.filter { i ->
+            val c = children[i]
+            val t = primaries[i]
+            c.text.isNullOrBlank() && c.intensity == null && t != null &&
+                mid(t) < EASY_RATIO * hardest.getValue(t.metric)
+        }.toSet()
+    }
+
+    private fun mid(t: Target): Double = (t.low + t.high) / 2
+
+    private fun toStep(s: StepDto, doc: WorkoutDocDto, repeat: String?, forceRest: Boolean = false): WorkoutStep {
+        val text = s.text?.takeIf { it.isNotBlank() }
+        val saysRecovery = text != null && RECOVERY_TEXT.containsMatchIn(text)
+        val kind = when {
+            s.warmup == true -> StepKind.WARMUP
+            s.cooldown == true -> StepKind.COOLDOWN
+            s.intensity == "rest" || s.intensity == "recovery" -> StepKind.REST
+            s.intensity == "warmup" -> StepKind.WARMUP
+            s.intensity == "cooldown" -> StepKind.COOLDOWN
+            saysRecovery || forceRest -> StepKind.REST
+            else -> StepKind.ACTIVE
+        }
+        val targets = targetsOf(s, doc)
+        val primary = primaryOf(doc, targets)
         val distance = (s.resolvedDistance ?: s.distance)?.takeIf { it > 0 }
         val duration = s.duration?.takeIf { it > 0 }
-        val label = s.text?.takeIf { it.isNotBlank() } ?: when (kind) {
-            StepKind.WARMUP -> "Warm up"
-            StepKind.COOLDOWN -> "Cool down"
-            StepKind.REST -> "Recover"
-            StepKind.ACTIVE -> "Work"
+        // A rest step without its own text is shown as Recovery; intervals.icu text always wins.
+        val label = when (kind) {
+            StepKind.REST -> text ?: "Recovery"
+            StepKind.WARMUP -> text ?: "Warm up"
+            StepKind.COOLDOWN -> text ?: "Cool down"
+            StepKind.ACTIVE -> text ?: "Work"
         }
         return WorkoutStep(
             label = label,
