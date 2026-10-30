@@ -83,6 +83,7 @@ private fun App(repo: WorkoutRepository) {
     var selected by remember { mutableStateOf<Workout?>(null) }
 
     LaunchedEffect(Unit) {
+        RecordingStore.restore(context)
         runCatching { repo.load() }
         runCatching { RecordingStore.sendPending(context) }
     }
@@ -92,14 +93,18 @@ private fun App(repo: WorkoutRepository) {
         s != null && s.ended -> Summary(s, save) { ExerciseService.dismiss(); selected = null }
         s != null -> ActiveWorkout(s)
         selected != null -> WorkoutDetail(selected!!, onBack = { selected = null })
-        else -> WorkoutList(bundle?.workouts.orEmpty()) { selected = it }
+        else -> WorkoutList(bundle?.workouts.orEmpty(), save) { selected = it }
     }
 }
 
 @Composable
-internal fun WorkoutList(workouts: List<Workout>, onPick: (Workout) -> Unit) {
+internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, onPick: (Workout) -> Unit) {
     WatchList {
         item { Text("Workouts", style = MaterialTheme.typography.title3) }
+        // Last upload still unresolved after a restart.
+        if (save is SaveStatus.Failed) {
+            item { Text(save.reason, fontSize = 11.sp, color = Color(0xFFEF5350), textAlign = TextAlign.Center) }
+        }
         if (workouts.isEmpty()) {
             item {
                 Text(

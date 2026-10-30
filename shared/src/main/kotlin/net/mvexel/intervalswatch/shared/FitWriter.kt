@@ -31,7 +31,7 @@ object FitWriter {
     )
     private val LAP = listOf(
         Field(253, 4, U32), Field(2, 4, U32), Field(7, 4, U32), Field(8, 4, U32), Field(9, 4, U32),
-        Field(254, 2, U16), Field(0, 1, ENUM), Field(1, 1, ENUM), Field(25, 1, ENUM), Field(24, 1, ENUM),
+        Field(254, 2, U16), Field(0, 1, ENUM), Field(1, 1, ENUM), Field(25, 1, ENUM), Field(23, 1, ENUM),
     )
     private val SESSION = listOf(
         Field(253, 4, U32), Field(2, 4, U32), Field(7, 4, U32), Field(8, 4, U32), Field(9, 4, U32),
@@ -67,7 +67,7 @@ object FitWriter {
         }
 
         val startFit = fit(0.0)
-        val endFit = fit(rec.totalSec)
+        val endFit = fit(rec.elapsedSec)
         val sport = when (rec.sport) { Sport.RUN -> 1L; Sport.RIDE -> 2L; Sport.OTHER -> 0L }
         val subSport = when {
             rec.sport == Sport.RUN && rec.indoor -> 1L
@@ -79,10 +79,22 @@ object FitWriter {
         data(0, FILE_ID, 4, 255, 0, 1, startFit)
 
         define(1, 21, EVENT)
-        data(1, EVENT, startFit, 0, 0)
-
         define(2, 20, RECORD)
+        // Timer events (start, stop_all at each pause, start at resume) are interleaved with records by time.
+        val events = ArrayDeque(
+            buildList {
+                add(0.0 to 0L)
+                rec.pauses.forEach { add(it.startSec to 4L); add(it.endSec to 0L) }
+            }.sortedBy { it.first },
+        )
+        fun flushEvents(upTo: Double) {
+            while (events.isNotEmpty() && events.first().first <= upTo) {
+                val (t, type) = events.removeFirst()
+                data(1, EVENT, fit(t), 0, type)
+            }
+        }
         for (s in rec.samples) {
+            flushEvents(s.t)
             data(
                 2, RECORD, fit(s.t),
                 s.lat?.let { (it * SEMICIRCLE).roundToLong() },
@@ -102,11 +114,12 @@ object FitWriter {
                 StepKind.REST -> 1L; StepKind.WARMUP -> 2L; StepKind.COOLDOWN -> 3L; else -> 0L
             }
             data(
-                3, LAP, fit(l.endSec), fit(l.startSec), ms(l.endSec - l.startSec), ms(l.endSec - l.startSec),
+                3, LAP, fit(l.endSec), fit(l.startSec), ms(l.endSec - l.startSec), ms(rec.timerBetween(l.startSec, l.endSec)),
                 cm(l.endM - l.startM), i.toLong(), 9, 1, sport, intensity,
             )
         }
 
+        flushEvents(rec.elapsedSec)
         data(1, EVENT, endFit, 0, 4)
 
         fun avg(v: List<Int>) = if (v.isEmpty()) null else v.average().roundToInt().toLong()
@@ -115,15 +128,15 @@ object FitWriter {
         val cad = rec.samples.mapNotNull { it.cadence }
         define(4, 18, SESSION)
         data(
-            4, SESSION, endFit, startFit, ms(rec.totalSec), ms(rec.totalSec), cm(rec.totalM),
+            4, SESSION, endFit, startFit, ms(rec.elapsedSec), ms(rec.timerSec), cm(rec.totalM),
             sport, subSport, 0, rec.laps.size.toLong(), 0, 8, 1,
             avg(hr), hr.maxOrNull()?.toLong(), avg(pw), pw.maxOrNull()?.toLong(),
-            if (rec.totalSec > 0) (rec.totalM / rec.totalSec * 1000).roundToLong().coerceIn(0, 0xFFFE) else null,
+            if (rec.timerSec > 0) (rec.totalM / rec.timerSec * 1000).roundToLong().coerceIn(0, 0xFFFE) else null,
             avg(cad),
         )
 
         define(5, 34, ACTIVITY)
-        data(5, ACTIVITY, endFit, ms(rec.totalSec), 1, 0, 26, 1)
+        data(5, ACTIVITY, endFit, ms(rec.timerSec), 1, 0, 26, 1)
 
         val bytes = body.toByteArray()
         val header = ByteBuffer.allocate(14).order(ByteOrder.LITTLE_ENDIAN).apply {

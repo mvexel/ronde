@@ -127,6 +127,7 @@ class ExerciseService : LifecycleService() {
     private var gpsReady = false
     private var ended = false
     private var recorder: RecordingBuilder? = null
+    private var recordStartMs = 0L
     private var lastSampleSec = -1
     private var location: LocationData? = null
 
@@ -171,7 +172,8 @@ class ExerciseService : LifecycleService() {
         }
         val e = WorkoutEngine(workout).also { it.start() }
         engine = e
-        recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, System.currentTimeMillis())
+        recordStartMs = System.currentTimeMillis()
+        recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, recordStartMs)
         lastSampleSec = -1
         location = null
         publish()
@@ -266,16 +268,20 @@ class ExerciseService : LifecycleService() {
         publish()
     }
 
+    private fun wallSec() = (System.currentTimeMillis() - recordStartMs) / 1000.0
+
     private fun record(e: WorkoutEngine, t: Double, d: Double) {
         val r = recorder ?: return
-        e.current?.let { r.onStep(e.index, it, t, d) }
+        val wall = wallSec()
+        if (state?.isPaused == true) r.pause(wall) else r.resume(wall)
+        e.current?.let { r.onStep(e.index, it, wall, d) }
         val sec = t.toInt()
         if (state != ExerciseState.ACTIVE || sec <= lastSampleSec) return
         lastSampleSec = sec
         val loc = location
         r.add(
             RecSample(
-                t = t, distanceM = d, lat = loc?.latitude, lon = loc?.longitude,
+                t = wall, distanceM = d, lat = loc?.latitude, lon = loc?.longitude,
                 altM = loc?.altitude?.takeIf { !it.isNaN() },
                 speed = speed, hr = heartRate?.toInt(), power = powerMeter?.watts?.value?.toInt(),
             ),
@@ -338,7 +344,7 @@ class ExerciseService : LifecycleService() {
         powerMeter?.stop()
         ended = true
         publish()
-        val rec = recorder?.build(activeSec(), distance())
+        val rec = recorder?.build(wallSec(), distance())
         recorder = null
         if (rec != null) RecordingStore.save(applicationContext, rec)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)

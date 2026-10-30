@@ -1,6 +1,6 @@
 package net.mvexel.intervalswatch.shared
 
-/** One second of a workout. Active time (pauses excluded) is [t]; missing sensors are null. */
+/** One second of a workout. [t] is wall-clock seconds since the recording started; missing sensors are null. */
 data class RecSample(
     val t: Double,
     val distanceM: Double,
@@ -13,7 +13,10 @@ data class RecSample(
     val cadence: Int? = null,
 )
 
+/** Wall-clock seconds since start. */
 data class RecLap(val startSec: Double, val endSec: Double, val startM: Double, val endM: Double, val kind: StepKind?)
+
+data class RecPause(val startSec: Double, val endSec: Double)
 
 data class Recording(
     val name: String,
@@ -22,11 +25,19 @@ data class Recording(
     val startEpochMs: Long,
     val samples: List<RecSample>,
     val laps: List<RecLap>,
-    val totalSec: Double,
+    val pauses: List<RecPause>,
+    /** Wall-clock length (FIT total_elapsed_time). */
+    val elapsedSec: Double,
     val totalM: Double,
-)
+) {
+    /** Moving/timer time: elapsed minus pauses (FIT total_timer_time). */
+    val timerSec: Double get() = timerBetween(0.0, elapsedSec)
 
-/** Collects samples and step boundaries while a workout runs. */
+    fun timerBetween(from: Double, to: Double): Double =
+        (to - from) - pauses.sumOf { (minOf(it.endSec, to) - maxOf(it.startSec, from)).coerceAtLeast(0.0) }
+}
+
+/** Collects samples, step boundaries and pauses while a workout runs. All times are wall-clock seconds since start. */
 class RecordingBuilder(
     private val name: String,
     private val sport: Sport,
@@ -35,12 +46,22 @@ class RecordingBuilder(
 ) {
     private val samples = ArrayList<RecSample>()
     private val laps = ArrayList<RecLap>()
+    private val pauses = ArrayList<RecPause>()
+    private var pausedAt: Double? = null
     private var lapIndex = -1
     private var lapKind: StepKind? = null
     private var lapStartSec = 0.0
     private var lapStartM = 0.0
 
     fun add(s: RecSample) { samples += s }
+
+    fun pause(t: Double) { if (pausedAt == null) pausedAt = t }
+
+    fun resume(t: Double) {
+        val p = pausedAt ?: return
+        pausedAt = null
+        if (t > p) pauses += RecPause(p, t)
+    }
 
     /** Call on every tick; closes the previous lap when the step index changed. */
     fun onStep(index: Int, step: WorkoutStep?, t: Double, d: Double) {
@@ -53,9 +74,10 @@ class RecordingBuilder(
     }
 
     fun build(t: Double, d: Double): Recording {
+        resume(t)
         if (lapIndex >= 0) closeLap(t, d)
         lapIndex = -1
-        return Recording(name, sport, indoor, startEpochMs, samples.toList(), laps.toList(), t, d)
+        return Recording(name, sport, indoor, startEpochMs, samples.toList(), laps.toList(), pauses.toList(), t, d)
     }
 
     private fun closeLap(t: Double, d: Double) {

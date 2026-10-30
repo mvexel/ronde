@@ -17,13 +17,14 @@ import java.util.concurrent.TimeUnit
 
 /** Personal API key auth: HTTP Basic with username "API_KEY" (intervals.icu → Settings → Developer). */
 class IntervalsApi(
+    private val baseUrl: String = "https://intervals.icu",
     private val client: OkHttpClient = OkHttpClient.Builder()
         .callTimeout(30, TimeUnit.SECONDS)
         .build(),
 ) {
     suspend fun plannedWorkouts(settings: Settings, from: LocalDate = LocalDate.now()): List<Workout> =
         withContext(Dispatchers.IO) {
-            val url = "https://intervals.icu/api/v1/athlete/${settings.athleteId}/events".toHttpUrl()
+            val url = "$baseUrl/api/v1/athlete/${settings.athleteId}/events".toHttpUrl()
                 .newBuilder()
                 .addQueryParameter("oldest", from.toString())
                 .addQueryParameter("newest", from.plusDays(settings.daysAhead.toLong()).toString())
@@ -50,7 +51,7 @@ class IntervalsApi(
      */
     suspend fun uploadActivity(settings: Settings, fit: ByteArray, fileName: String, name: String, externalId: String) =
         withContext(Dispatchers.IO) {
-            val url = "https://intervals.icu/api/v1/athlete/${settings.athleteId}/activities".toHttpUrl()
+            val url = "$baseUrl/api/v1/athlete/${settings.athleteId}/activities".toHttpUrl()
                 .newBuilder()
                 .addQueryParameter("name", name)
                 .addQueryParameter("external_id", externalId)

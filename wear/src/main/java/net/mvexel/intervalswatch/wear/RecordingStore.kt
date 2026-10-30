@@ -29,6 +29,34 @@ object RecordingStore {
     /** Outcome of the most recent recording, for the summary screen. */
     val status: StateFlow<SaveStatus?> = _status.asStateFlow()
     private var latest: String? = null
+    private var restored = false
+
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("recording", Context.MODE_PRIVATE)
+
+    /** Loads the last status after a restart. */
+    fun restore(ctx: Context) {
+        if (restored) return
+        restored = true
+        val p = prefs(ctx)
+        latest = p.getString("latest", null)
+        if (_status.value == null) _status.value = when (p.getString("state", null)) {
+            "saving" -> SaveStatus.Saving
+            "saved" -> SaveStatus.Saved
+            "failed" -> SaveStatus.Failed(p.getString("reason", "") ?: "")
+            else -> null
+        }
+    }
+
+    private fun set(ctx: Context, s: SaveStatus) {
+        _status.value = s
+        prefs(ctx).edit().putString("latest", latest).apply {
+            when (s) {
+                SaveStatus.Saving -> putString("state", "saving")
+                SaveStatus.Saved -> putString("state", "saved")
+                is SaveStatus.Failed -> putString("state", "failed").putString("reason", s.reason)
+            }
+        }.apply()
+    }
 
     private fun dir(ctx: Context) = File(ctx.filesDir, "recordings").apply { mkdirs() }
 
@@ -40,18 +68,19 @@ object RecordingStore {
 
     /** Writes the FIT file and starts sending it. */
     suspend fun save(ctx: Context, rec: Recording) {
+        restored = true
         if (rec.samples.isEmpty()) {
-            _status.value = SaveStatus.Failed("Nothing was recorded")
+            set(ctx, SaveStatus.Failed("Nothing was recorded"))
             return
         }
         val name = fileName(rec)
         latest = name
-        _status.value = SaveStatus.Saving
+        set(ctx, SaveStatus.Saving)
         try {
             withContext(Dispatchers.IO) { File(dir(ctx), name).writeBytes(FitWriter.encode(rec)) }
         } catch (t: Throwable) {
             Log.e(TAG, "Could not write recording", t)
-            _status.value = SaveStatus.Failed("Couldn't write file: ${t.message}")
+            set(ctx, SaveStatus.Failed("Couldn't write file: ${t.message}"))
             return
         }
         sendPending(ctx)
@@ -59,12 +88,13 @@ object RecordingStore {
 
     /** Sends every file the phone hasn't confirmed yet. Safe to call repeatedly. */
     suspend fun sendPending(ctx: Context) {
+        restore(ctx)
         val files = pending(ctx)
         if (files.isEmpty()) return
         try {
             val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
             if (nodes.isEmpty()) {
-                fail(files, "Phone not connected. Will send when it is.")
+                fail(ctx, files, "Phone not connected. Will send when it is.")
                 return
             }
             val channels = Wearable.getChannelClient(ctx)
@@ -75,18 +105,19 @@ object RecordingStore {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Send failed", t)
-            fail(files, "Couldn't reach the phone. Will retry.")
+            fail(ctx, files, "Couldn't reach the phone. Will retry.")
         }
     }
 
-    private fun fail(files: List<File>, reason: String) {
-        if (files.any { it.name == latest }) _status.value = SaveStatus.Failed(reason)
+    private fun fail(ctx: Context, files: List<File>, reason: String) {
+        if (files.any { it.name == latest }) set(ctx, SaveStatus.Failed(reason))
     }
 
     internal fun onResult(ctx: Context, ok: Boolean, name: String, reason: String) {
+        restore(ctx)
         if (ok) File(dir(ctx), File(name).name).delete()
         if (name == latest || latest == null) {
-            _status.value = if (ok) SaveStatus.Saved else SaveStatus.Failed("Upload failed: $reason. Phone will retry.")
+            set(ctx, if (ok) SaveStatus.Saved else SaveStatus.Failed("Upload failed: $reason. Phone will retry."))
         }
     }
 }

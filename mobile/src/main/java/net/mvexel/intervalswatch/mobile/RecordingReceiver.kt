@@ -54,14 +54,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val file = File(recordingsDir(applicationContext), name)
         if (!file.exists()) return Result.success()
         val settings = SettingsStore(applicationContext).current()
-        val failure: String? = if (!settings.configured) "No API key on the phone" else runCatching {
-            // File name is <epochSec>_<workout_name>.fit
-            val stem = name.removeSuffix(".fit")
-            IntervalsApi().uploadActivity(
-                settings, file.readBytes(), name,
-                stem.substringAfter('_').replace('_', ' '), "intervalswatch-${stem.substringBefore('_')}",
-            )
-        }.exceptionOrNull()?.let { it.message ?: "upload failed" }
+        val failure = uploadRecordingFile(IntervalsApi(), settings, file)
 
         notifyWatch(name, failure)
         if (failure == null) {
@@ -93,4 +86,17 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             WorkManager.getInstance(ctx).enqueueUniqueWork("upload-$name", ExistingWorkPolicy.KEEP, req)
         }
     }
+}
+
+/** @return null on success, else a short reason. The reason never contains the API key. */
+suspend fun uploadRecordingFile(api: IntervalsApi, settings: Settings, file: File): String? {
+    if (!settings.configured) return "No API key on the phone"
+    // File name is <epochSec>_<workout_name>.fit
+    val stem = file.name.removeSuffix(".fit")
+    return runCatching {
+        api.uploadActivity(
+            settings, file.readBytes(), file.name,
+            stem.substringAfter('_').replace('_', ' '), "intervalswatch-${stem.substringBefore('_')}",
+        )
+    }.exceptionOrNull()?.let { it.message ?: "upload failed" }
 }

@@ -86,4 +86,35 @@ class FitWriterTest {
         val (ok, name, reason) = RecordingProtocol.parseResult(RecordingProtocol.result(false, "a.fit", "HTTP 401"))
         assertEquals(false, ok); assertEquals("a.fit", name); assertEquals("HTTP 401", reason)
     }
+
+    @Test fun pausesSplitElapsedAndTimerTime() {
+        val b = RecordingBuilder("P", Sport.RIDE, false, 1_790_000_000_000L)
+        b.onStep(0, null, 0.0, 0.0)
+        b.add(RecSample(0.0, 0.0))
+        b.pause(10.0); b.pause(11.0); b.resume(40.0)
+        b.add(RecSample(41.0, 5.0))
+        val r = b.build(60.0, 100.0)
+        assertEquals(60.0, r.elapsedSec, 0.0)
+        assertEquals(30.0, r.timerSec, 0.0)
+        assertEquals(1, r.pauses.size)
+        // stop_all + start around the pause, plus initial start and final stop
+        assertEquals(4, messageCounts(FitWriter.encode(r))[21])
+    }
+
+    /** Writes a 10-minute ride (GPS, HR, power, 2 laps, 30 s pause) when FIT_SAMPLE_OUT is set. */
+    @Test fun writeSampleRide() {
+        val out = System.getenv("FIT_SAMPLE_OUT") ?: return
+        val b = RecordingBuilder("Sample ride", Sport.RIDE, false, 1_790_000_000_000L)
+        val step = WorkoutStep("a", StepKind.WARMUP, durationSec = 300)
+        var d = 0.0
+        for (t in 0..630) {
+            if (t == 300) b.pause(300.0)
+            if (t == 330) b.resume(330.0)
+            if (t in 301..329) continue
+            b.onStep(if (t < 300) 0 else 1, step.copy(kind = if (t < 300) StepKind.WARMUP else StepKind.ACTIVE), t.toDouble(), d)
+            d += 8.0
+            b.add(RecSample(t.toDouble(), d, 52.0 + t * 1e-5, 5.0 + t * 1.5e-5, 12.0 + t % 10, 8.0, 120 + t / 10, 150 + t % 50))
+        }
+        java.io.File(out).writeBytes(FitWriter.encode(b.build(630.0, d)))
+    }
 }
