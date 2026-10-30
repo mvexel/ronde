@@ -49,7 +49,10 @@ import net.mvexel.intervalswatch.shared.WorkoutStep
 import net.mvexel.intervalswatch.shared.movePage
 import net.mvexel.intervalswatch.shared.pagesFor
 import net.mvexel.intervalswatch.wear.ui.Rb
+import net.mvexel.intervalswatch.wear.ui.HeartText
 import net.mvexel.intervalswatch.wear.ui.RbType
+import net.mvexel.intervalswatch.wear.ui.RingVariant
+import net.mvexel.intervalswatch.wear.ui.WorkoutRing
 import net.mvexel.intervalswatch.wear.ui.kindColor
 
 /** Rotary scroll pixels that make one crown detent; two detents is a deliberate turn (settings.md §3.1). Tune on the device. */
@@ -58,7 +61,8 @@ private const val DETENT_PX = 40f
 /** What a step with neither time nor a known length weighs on the ring, in seconds. */
 private const val NOMINAL_STEP_SEC = 120.0
 
-private const val GAP_DEG = 2f
+/** Gap between ring arcs: 2.4° up to 12 steps, 1.6° above (visual-design.md §5.2). */
+private fun gapDeg(steps: Int) = if (steps > 12) 1.6f else 2.4f
 
 /** One arc of the Workout ring: where it starts and how long it is, in degrees from 12 o'clock. */
 internal data class RingSegment(val index: Int, val startDeg: Float, val sweepDeg: Float)
@@ -68,11 +72,12 @@ internal fun ringSegments(steps: List<WorkoutStep>): List<RingSegment> {
     if (steps.isEmpty()) return emptyList()
     val weights = steps.map { (it.durationSec ?: 0).toDouble().takeIf { d -> d > 0 } ?: NOMINAL_STEP_SEC }
     val total = weights.sum()
-    val usable = 360f - GAP_DEG * steps.size
+    val gap = gapDeg(steps.size)
+    val usable = 360f - gap * steps.size
     var at = 0f
     return steps.indices.map { i ->
         val sweep = (weights[i] / total * usable).toFloat()
-        RingSegment(i, at, sweep).also { at += sweep + GAP_DEG }
+        RingSegment(i, at, sweep).also { at += sweep + gap }
     }
 }
 
@@ -159,7 +164,7 @@ private fun Quadrant(s: Session, field: Field, clock: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         val value = fieldValue(s, field, clock)
         Text(value ?: fieldWaiting(s, field), style = RbType.partner, color = if (value == null) Rb.ink3 else Rb.ink, maxLines = 1, textAlign = TextAlign.Center)
-        Text(quadrantLabel(s, field).ifEmpty { " " }, style = RbType.label, color = Rb.ink2, maxLines = 1)
+        HeartText(quadrantLabel(s, field).ifEmpty { " " }, RbType.label, Rb.ink2)
     }
 }
 
@@ -174,26 +179,8 @@ internal fun quadrantLabel(s: Session, field: Field): String =
 @Composable
 internal fun WorkoutRingPage(s: Session) {
     val steps = s.workout.steps
-    val segments = remember(steps) { ringSegments(steps) }
-    val nowDeg = ringNowDeg(segments, s.stepIndex, s.progress.fraction)
     Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val w = 9.dp.toPx()
-            val arcSize = Size(size.width - w, size.height - w)
-            val topLeft = Offset(w / 2, w / 2)
-            segments.forEach { seg ->
-                val color = kindColor(steps[seg.index].kind)
-                val doneSweep = (nowDeg - seg.startDeg).coerceIn(0f, seg.sweepDeg)
-                drawArc(color.copy(alpha = 0.3f), -90f + seg.startDeg, seg.sweepDeg, false, topLeft, arcSize, style = Stroke(w))
-                if (doneSweep > 0f) drawArc(color, -90f + seg.startDeg, doneSweep, false, topLeft, arcSize, style = Stroke(w))
-            }
-            // The "now" marker: a short white tick across the ring.
-            val r = (size.width - w) / 2
-            val a = Math.toRadians((nowDeg - 90f).toDouble())
-            val c = Offset(size.width / 2, size.height / 2)
-            fun at(rad: Float) = Offset(c.x + rad * Math.cos(a).toFloat(), c.y + rad * Math.sin(a).toFloat())
-            drawLine(Rb.ink, at(r - w * 0.9f), at(r + w * 0.9f), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
-        }
+        WorkoutRing(steps, RingVariant.Now(s.stepIndex, s.progress.fraction), 9.dp)
         Column(Modifier.padding(horizontal = 36.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             s.step?.let { StepRow(it, Rb.ink, RbType.body.copy(fontWeight = FontWeight.Bold)) }
             val upcoming = steps.drop(s.stepIndex + 1).take(2)

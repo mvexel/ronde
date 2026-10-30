@@ -109,7 +109,7 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
     }
 
     @Test fun ambientRunAvg() = snap {
-        AmbientWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8), paceView = PaceView.AVG)
+        AmbientWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8))
     }
 
     @Test fun runDistanceStep() = snap {
@@ -176,6 +176,16 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
 
     @Test fun slotMapDial() = snap {
         SlotMapScreen(Sport.RIDE, ScreenSettings().ride, { _, _ -> }, initialSelected = Slot.FLANK_RIGHT)
+    }
+
+    @Test fun detail() = snap { DetailBezel(Samples.workouts[0], selected = 1, onStart = {}, onSteps = {}) }
+
+    @Test fun holdToEnd() = snap { HoldRing(0.4f) }
+
+    @Test fun summaryResult() = snap {
+        val w = Samples.workouts[0]
+        val done = session(w, w.steps.size, null, ended = true)
+        Summary(done.copy(onTarget = w.steps.indices.filter { w.steps[it].kind == StepKind.ACTIVE }.take(1).associateWith { true }, avgHeartRate = 152.0), SaveStatus.Saved) {}
     }
 
     @Test fun summary() = snap {

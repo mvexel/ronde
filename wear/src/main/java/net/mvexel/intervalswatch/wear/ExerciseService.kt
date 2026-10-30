@@ -85,6 +85,8 @@ data class Session(
     /** Running means over the whole session so far (Totals page). */
     val avgHeartRate: Double? = null,
     val avgPower: Double? = null,
+    /** Per step index: true when the live value was in range for most of the step (Summary result ring). */
+    val onTarget: Map<Int, Boolean> = emptyMap(),
 ) {
     fun live(metric: Metric): Double? = when (metric) {
         Metric.POWER -> power
@@ -178,6 +180,8 @@ class ExerciseService : LifecycleService() {
 
     // Alert bookkeeping
     private var outOfRangeSinceSec: Double? = null
+    // Per step: [samples in range, samples with a live value] for the result ring.
+    private val rangeSamples = mutableMapOf<Int, IntArray>()
     private var lastRangeAlertSec = -1000.0
     private var countdownStep = -1
     private var hundredStep = -1
@@ -394,6 +398,7 @@ class ExerciseService : LifecycleService() {
         record(e, t, d)
         watchPowerMeter()
         countdown(e, t, d)
+        sampleRange(e, t, d)
         rangeAlert(e, t, d)
         publish()
     }
@@ -517,6 +522,15 @@ class ExerciseService : LifecycleService() {
         else if (was == PowerMeter.Status.DISCONNECTED && now == PowerMeter.Status.CONNECTED) sensorBuzz(false)
     }
 
+    private fun sampleRange(e: WorkoutEngine, t: Double, d: Double) {
+        if (state != ExerciseState.ACTIVE) return
+        val target = e.current?.primaryTarget ?: return
+        val value = session.value?.live(target.metric) ?: return
+        val counts = rangeSamples.getOrPut(e.index) { IntArray(2) }
+        counts[1]++
+        if (target.compare(value, e.progress(t, d).fraction) == 0) counts[0]++
+    }
+
     private fun rangeAlert(e: WorkoutEngine, t: Double, d: Double) {
         if (!settings.forSport(e.workout.sport).offTargetBuzz) return
         val step = e.current ?: return
@@ -558,6 +572,7 @@ class ExerciseService : LifecycleService() {
             stepAvgSpeed = stepAvgSpeed(d - e.stepStartM, e.progress(t, d).elapsedSec),
             avgHeartRate = hrMean.value,
             avgPower = powerMean.value,
+            onTarget = rangeSamples.filterValues { it[1] > 0 }.mapValues { it.value[0] * 5 >= it.value[1] * 4 },
         )
     }
 

@@ -55,7 +55,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
+import net.mvexel.intervalswatch.wear.ui.HeartText
 import net.mvexel.intervalswatch.wear.ui.Rb
+import net.mvexel.intervalswatch.wear.ui.RbType
+import net.mvexel.intervalswatch.wear.ui.RingVariant
+import net.mvexel.intervalswatch.wear.ui.WorkoutRing
+import net.mvexel.intervalswatch.shared.CrownPager
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+import androidx.compose.ui.text.withStyle
+import androidx.wear.compose.foundation.CurvedDirection
+import androidx.wear.compose.foundation.CurvedLayout
+import androidx.wear.compose.material.curvedText
 import net.mvexel.intervalswatch.wear.ui.RunbumTheme
 import net.mvexel.intervalswatch.wear.ui.kindColor
 import androidx.compose.ui.platform.LocalContext
@@ -167,11 +179,10 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
             ambient && (s == null || s.ended) -> AmbientIdle()
             s != null && s.ended -> Summary(s, save) { ExerciseService.dismiss(); selected = null }
             s != null && ambient -> {
-                val (paceView, _) = rememberPaceView(LocalContext.current, s.workout.sport)
                 // Freeze the session between ambient updates so the dimmed screen isn't redrawn twice a second.
                 // A step change or pause is shown at once; that is a single redraw.
                 val frozen = remember(ambientTick, s.stepIndex, s.paused) { s }
-                AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0, paceView = paceView)
+                AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0)
             }
 
             s != null -> {
@@ -214,61 +225,75 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
 }
 
 @Composable
-internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phoneLoggedIn: Boolean = true, onSettings: (() -> Unit)? = null, onPick: (Workout) -> Unit) {
-    WatchList {
-        item { Text("Workouts", style = MaterialTheme.typography.title3) }
-        item("open") {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                listOf(Sport.RUN to "Run", Sport.RIDE to "Ride", Sport.WALK to "Walk").forEach { (sport, label) ->
-                    Box(
-                        Modifier.size(48.dp).border(1.5.dp, Rb.ink2, CircleShape).clip(CircleShape)
-                            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = { onPick(Workout.open(sport, java.time.LocalDateTime.now().withNano(0).toString())) }),
-                        contentAlignment = Alignment.Center,
-                    ) { Text(label, fontSize = 12.sp, maxLines = 1) }
+internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phoneLoggedIn: Boolean = true, onSettings: (() -> Unit)? = null, clock: String = clockNow(), today: java.time.LocalDate = java.time.LocalDate.now(), onPick: (Workout) -> Unit) {
+    Box(Modifier.fillMaxSize()) {
+        WatchList {
+            item("open") {
+                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    listOf(Sport.RUN to "Run", Sport.RIDE to "Ride", Sport.WALK to "Walk").forEach { (sport, label) ->
+                        Box(
+                            Modifier.size(44.dp).border(1.5.dp, Rb.ink2, CircleShape).clip(CircleShape)
+                                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = { onPick(Workout.open(sport, java.time.LocalDateTime.now().withNano(0).toString())) }),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(label, style = RbType.label, maxLines = 1) }
+                    }
+                }
+            }
+            // Last upload still unresolved after a restart.
+            if (save is SaveStatus.Failed) {
+                item { Text(save.reason, fontSize = 11.sp, color = Rb.signal, textAlign = TextAlign.Center) }
+            }
+            if (!phoneLoggedIn) {
+                item {
+                    Text(
+                        "Phone not logged in. Open Ronde on the phone and log in.",
+                        fontSize = 11.sp, color = Rb.signal, textAlign = TextAlign.Center,
+                    )
+                }
+            }
+            if (workouts.isEmpty()) {
+                item {
+                    Text(
+                        "Nothing yet. Open the phone app and sync.",
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(8.dp),
+                    )
+                }
+            }
+            items(workouts, key = { it.id }) { w ->
+                val isToday = workoutDay(w, today) == "Today"
+                Chip(
+                    onClick = { onPick(w) },
+                    icon = { WorkoutRing(w.steps, RingVariant.Plain, 4.dp, Modifier.size(28.dp)) },
+                    label = { Text(w.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = {
+                        val day = workoutDay(w, today)
+                        val rest = listOfNotNull(
+                            w.sport.name.lowercase().replaceFirstChar { it.uppercase() } + if (w.indoor) " in" else "",
+                            w.totalDurationSec?.let { Format.duration(it.toDouble()) },
+                        ).joinToString(" · ")
+                        Text(
+                            androidx.compose.ui.text.buildAnnotatedString {
+                                if (isToday) withStyle(androidx.compose.ui.text.SpanStyle(color = Rb.work, fontWeight = FontWeight.SemiBold)) { append(day) } else append(day)
+                                append(" · $rest")
+                            },
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    border = if (isToday) ChipDefaults.outlinedChipBorder(Rb.work) else ChipDefaults.chipBorder(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (onSettings != null) {
+                item("settings") {
+                    Chip(onClick = onSettings, label = { Text("Settings") }, colors = ChipDefaults.secondaryChipColors(), modifier = Modifier.fillMaxWidth())
                 }
             }
         }
-        // Last upload still unresolved after a restart.
-        if (save is SaveStatus.Failed) {
-            item { Text(save.reason, fontSize = 11.sp, color = Rb.signal, textAlign = TextAlign.Center) }
-        }
-        if (!phoneLoggedIn) {
-            item {
-                Text(
-                    "Phone not logged in. Open Ronde on the phone and log in.",
-                    fontSize = 11.sp, color = Rb.signal, textAlign = TextAlign.Center,
-                )
-            }
-        }
-        if (workouts.isEmpty()) {
-            item {
-                Text(
-                    "Nothing yet. Open the phone app and sync.",
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(8.dp),
-                )
-            }
-        }
-        items(workouts, key = { it.id }) { w ->
-            Chip(
-                onClick = { onPick(w) },
-                label = { Text(w.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                secondaryLabel = {
-                    Text(
-                        listOfNotNull(
-                            w.startLocal.drop(5).take(11).replace('T', ' '),
-                            w.totalDurationSec?.let { Format.duration(it.toDouble()) },
-                        ).joinToString(" · "),
-                    )
-                },
-                colors = ChipDefaults.secondaryChipColors(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (onSettings != null) {
-            item("settings") {
-                Chip(onClick = onSettings, label = { Text("Settings") }, colors = ChipDefaults.secondaryChipColors(), modifier = Modifier.fillMaxWidth())
-            }
+        // Clock on the top edge.
+        CurvedLayout(anchor = 270f) {
+            curvedText(clock, color = Rb.ink2, fontSize = RbType.edge, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -307,11 +332,65 @@ private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onScreens: (() ->
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         ExerciseService.start(ctx, w)
     }
+    var listing by remember { mutableStateOf(false) }
+    if (listing) {
+        WorkoutSteps(w, onPickPower, onScreens) { listing = false }
+        return
+    }
+    DetailBezel(w, onStart = { launcher.launch(perms) }, onSteps = { listing = true })
+}
+
+/** The workout ring is the bezel; the crown scrubs its highlight and the line under Start describes that step (ux D1, D3). */
+@Composable
+internal fun DetailBezel(w: Workout, selected: Int = 0, onStart: () -> Unit, onSteps: () -> Unit) {
+    var index by remember { mutableStateOf(selected.coerceIn(0, maxOf(0, w.steps.size - 1))) }
+    val pager = remember { CrownPager(thresholdDetents = 1f) }
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    Box(
+        Modifier.fillMaxSize().background(Rb.ground)
+            .onRotaryScrollEvent { e ->
+                val dir = pager.turn(e.verticalScrollPixels / 40f, System.currentTimeMillis())
+                if (dir != 0) index = (index + dir).coerceIn(0, maxOf(0, w.steps.size - 1))
+                true
+            }
+            .focusRequester(focus)
+            .focusable(),
+        contentAlignment = Alignment.Center,
+    ) {
+        WorkoutRing(w.steps, RingVariant.Highlight(index), 9.dp)
+        CurvedLayout(Modifier.padding(11.dp), anchor = 270f) {
+            curvedText(w.name.uppercase(), color = Rb.ink, fontSize = RbType.edge, fontWeight = FontWeight.SemiBold)
+        }
+        // GPS only matters outdoors; the heart rate sensor is always wanted.
+        CurvedLayout(Modifier.padding(11.dp), anchor = 90f, angularDirection = CurvedDirection.Angular.CounterClockwise) {
+            curvedText(
+                (if (w.indoor) "indoor" else "GPS") + " · HR",
+                color = Rb.ink3, fontSize = RbType.edge, fontWeight = FontWeight.Medium,
+                angularDirection = CurvedDirection.Angular.CounterClockwise,
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(
+                Modifier.size(52.dp).background(Rb.work, CircleShape)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onStart),
+                contentAlignment = Alignment.Center,
+            ) { Text("▶", color = Rb.ground) }
+            Text(
+                stepDescription(w, index),
+                style = RbType.label, color = Rb.ink2, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 30.dp).clickable(onClick = onSteps),
+            )
+        }
+    }
+}
+
+/** The full step list, the coach's notes' neighbours (power meter, screens) and back. */
+@Composable
+private fun WorkoutSteps(w: Workout, onPickPower: () -> Unit, onScreens: (() -> Unit)?, onClose: () -> Unit) {
+    val ctx = LocalContext.current
     WatchList {
         item { Text(w.name, style = MaterialTheme.typography.title3, textAlign = TextAlign.Center) }
-        item {
-            Button(onClick = { launcher.launch(perms) }) { Text("Start") }
-        }
         if (w.usesPower) {
             item {
                 val store = remember { PowerMeterStore(ctx) }
@@ -337,7 +416,7 @@ private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onScreens: (() ->
         }
         items(w.steps.size) { i -> StepRow(w, w.steps[i]) }
         item {
-            CompactButton(onClick = onBack, colors = ButtonDefaults.secondaryButtonColors()) { Text("←") }
+            CompactButton(onClick = onClose, colors = ButtonDefaults.secondaryButtonColors()) { Text("←") }
         }
     }
 }
@@ -425,15 +504,14 @@ internal fun RoundButton(onClick: () -> Unit, secondary: Boolean = false, captio
     }
 }
 
-/** End button that must be held for a second; a ring fills around it while held, and letting go cancels. */
+/** End button that must be held for a second: a `signal` outline ring that fills as you hold; letting go cancels. */
 @Composable
 internal fun HoldToEnd(onEnd: () -> Unit) {
     val progress = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    // 52 dp button inside a 60 dp box: the 4 dp ring sits outside the button so the finger doesn't cover it.
     Box(
-        Modifier.size(60.dp).pointerInput(Unit) {
+        Modifier.size(52.dp).pointerInput(Unit) {
             detectTapGestures(onPress = {
                 val job = scope.launch {
                     progress.animateTo(1f, androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.LinearEasing))
@@ -447,15 +525,20 @@ internal fun HoldToEnd(onEnd: () -> Unit) {
         },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(52.dp).background(Rb.signal.copy(alpha = 0.35f), CircleShape))
-        Canvas(Modifier.fillMaxSize()) {
-            val w = 4.dp.toPx()
-            val tl = androidx.compose.ui.geometry.Offset(w / 2, w / 2)
-            val sz = Size(size.width - w, size.height - w)
-            drawArc(Rb.track, 0f, 360f, false, tl, sz, style = Stroke(w))
-            drawArc(Rb.signal, -90f, 360f * progress.value, false, tl, sz, style = Stroke(w))
-        }
-        Text("■")
+        HoldRing(progress.value)
+        Box(Modifier.size(14.dp).background(Rb.signal, RoundedCornerShape(2.dp)))
+    }
+}
+
+/** The outline of [HoldToEnd]: a dim full ring with the held fraction drawn over it clockwise from 12. */
+@Composable
+internal fun HoldRing(fraction: Float) {
+    Canvas(Modifier.fillMaxSize()) {
+        val w = 4.dp.toPx()
+        val tl = androidx.compose.ui.geometry.Offset(w / 2, w / 2)
+        val sz = Size(size.width - w, size.height - w)
+        drawArc(Rb.signal.copy(alpha = 0.4f), 0f, 360f, false, tl, sz, style = Stroke(w))
+        drawArc(Rb.signal, -90f, 360f * fraction.coerceIn(0f, 1f), false, tl, sz, style = Stroke(w))
     }
 }
 
@@ -469,64 +552,88 @@ internal fun AmbientIdle() {
     }
 }
 
-/** Dimmed, low-power view: current step and time left, black background, no buttons. */
+/**
+ * Dimmed, low-power view (ux X2): hairline workout ring, the target range as the biggest thing in Light weight,
+ * minutes left. No fills, no live value, no buttons.
+ */
 @Composable
-internal fun AmbientWorkout(s: Session, shift: Int = 0, paceView: PaceView = PaceView.NOW) {
+internal fun AmbientWorkout(s: Session, shift: Int = 0) {
     val w = s.workout
     val step = s.step
     val p = s.progress
     Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 22.dp).offset(x = (shift * 4).dp, y = (shift * 4).dp)) {
+        WorkoutRing(w.steps, RingVariant.Hairline(s.stepIndex), 1.5.dp, Modifier.fillMaxSize().padding(2.dp))
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 26.dp).offset(x = (shift * 4).dp, y = (shift * 4).dp)) {
             if (step == null) {
-                Text("Workout done", color = AmbientGray, fontSize = 18.sp)
+                Text("Workout done", color = AmbientGray, fontSize = 18.sp, fontWeight = FontWeight.Light)
             } else {
                 Text(
                     listOfNotNull(step.repeat, step.label).joinToString("  "),
-                    color = AmbientGray, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = AmbientGray, fontSize = 16.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                // The target is the biggest thing; time left is whole minutes because the screen
-                // is only redrawn about once a minute (a frozen m:ss would look like a hang).
+                // Time left is whole minutes because the screen is only redrawn about once a minute
+                // (a frozen m:ss would look like a hang).
                 step.primaryTarget?.let {
-                    Text(Format.target(it, p.fraction, w.paceUnit, w.sport), color = AmbientGray, fontSize = 30.sp, textAlign = TextAlign.Center)
-                }
-                step.primaryTarget?.takeIf { it.metric == Metric.PACE }?.let {
-                    val c = paceChoice(s.live(Metric.PACE), s.stepAvgSpeed, paceView)
-                    c.hero?.let { v -> Text("${c.heroView.label} ${Format.pace(v, w.paceUnit)} ${Format.paceSuffix(w.paceUnit)}", color = AmbientGray, fontSize = 16.sp) }
+                    Text(Format.target(it, p.fraction, w.paceUnit, w.sport), color = Rb.ink, fontSize = 32.sp, fontWeight = FontWeight.Light, textAlign = TextAlign.Center)
                 }
                 val left = when {
                     p.remainingSec != null -> "${kotlin.math.ceil(p.remainingSec!! / 60).toInt()} min left"
                     p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit) + " left"
                     else -> Format.duration(p.elapsedSec)
                 }
-                Text(left, color = Rb.ink2, fontSize = 16.sp)
+                Text(left, color = Rb.ink2, fontSize = 16.sp, fontWeight = FontWeight.Light)
             }
         }
     }
 }
 
+/** The ring becomes the result (ux S1, S2): "✓ Saved" first, reps on target in amber, then the numbers, then OK. */
 @Composable
 internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
-    WatchList {
-        item { Text("Finished", style = MaterialTheme.typography.title2) }
-        item { Text(s.workout.name, textAlign = TextAlign.Center) }
-        item { Text("Time ${Format.duration(s.activeSec)}") }
-        if (s.distanceM > 0) item { Text(Format.distance(s.distanceM, s.workout.paceUnit)) }
-        if (!s.workout.isOpen) item { Text("Steps ${minOf(s.stepIndex, s.workout.steps.size)}/${s.workout.steps.size}") }
-        item {
+    val w = s.workout
+    val work = w.steps.indices.filter { w.steps[it].kind == net.mvexel.intervalswatch.shared.StepKind.ACTIVE }
+    val hits = work.count { s.onTarget[it] == true }
+    Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
+        WorkoutRing(w.steps, RingVariant.Result(s.stepIndex, s.onTarget), 9.dp)
+        Column(Modifier.padding(horizontal = 34.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(1.dp)) {
             when (save) {
-                SaveStatus.Saving -> Text("Saving…", color = Rb.ink2)
-                SaveStatus.Saved -> Text("✓ Saved to intervals.icu", color = Rb.ink, textAlign = TextAlign.Center)
+                SaveStatus.Saving -> Text("Saving…", style = RbType.label, color = Rb.ink2)
+                SaveStatus.Saved -> Text("✓ Saved", style = RbType.body, color = Rb.ink, fontWeight = FontWeight.Bold)
                 is SaveStatus.Failed -> Text(
-                    save.reason, fontSize = 12.sp, textAlign = TextAlign.Center,
+                    save.reason, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 3,
                     color = if (save.reason == "Nothing recorded") Rb.ink3 else Rb.signal,
                 )
                 null -> Unit
             }
+            if (work.isNotEmpty()) Text("$hits of ${work.size} reps on target", style = RbType.label, color = Rb.work, maxLines = 1)
+            Text(
+                listOfNotNull(Format.duration(s.activeSec), s.distanceM.takeIf { it > 0 }?.let { Format.distance(it, w.paceUnit) }).joinToString(" · "),
+                style = RbType.partner, color = Rb.ink, maxLines = 1,
+            )
+            summaryDetail(s)?.let { (hr, pace) ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    hr?.let { HeartText("♥ $it", RbType.label, Rb.ink2) }
+                    pace?.let { Text(it, style = RbType.label, color = Rb.ink2, maxLines = 1) }
+                }
+            }
+            Box(
+                Modifier.padding(top = 4.dp).size(width = 64.dp, height = 32.dp).background(Rb.ink, CircleShape)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onDone),
+                contentAlignment = Alignment.Center,
+            ) { Text("OK", color = Rb.ground, fontWeight = FontWeight.Bold) }
         }
-        item { Button(onClick = onDone) { Text("OK") } }
     }
 }
 
+/** Average heart rate and average pace (or speed on a ride) of the whole session; null parts when there's no data. */
+private fun summaryDetail(s: Session): Pair<String?, String?>? {
+    val hr = s.avgHeartRate?.let { "%.0f".format(it) }
+    val pace = if (s.distanceM > 0 && s.activeSec > 0) {
+        val v = s.distanceM / s.activeSec
+        "${Format.pace(v, s.workout.paceUnit)} ${Format.paceSuffix(s.workout.paceUnit)}"
+    } else null
+    return if (hr == null && pace == null) null else hr to pace
+}
 
 /** Minimal list DSL so the same screen code renders as a ScalingLazyColumn on the watch and as a
  *  plain Column in inspection mode (Paparazzi can't render ScalingLazyColumn). */
