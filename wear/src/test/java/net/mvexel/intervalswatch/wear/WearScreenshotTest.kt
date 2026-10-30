@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.wear.compose.material.MaterialTheme
+import net.mvexel.intervalswatch.wear.ui.RunbumTheme
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import net.mvexel.intervalswatch.shared.Samples
@@ -28,7 +28,7 @@ class WearScreenshotTest {
     // the first frame, so a zero-offset snapshot comes out blank.
     private fun snap(content: @Composable () -> Unit) {
         val view = ComposeView(paparazzi.context).apply { setContent {
-                CompositionLocalProvider(LocalInspectionMode provides true) { MaterialTheme { content() } }
+                CompositionLocalProvider(LocalInspectionMode provides true) { RunbumTheme { content() } }
             } }
         paparazzi.snapshot(view, offsetMillis = 1000L)
     }

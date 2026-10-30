@@ -38,6 +38,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import net.mvexel.intervalswatch.wear.ui.Rb
+import net.mvexel.intervalswatch.wear.ui.RunbumTheme
+import net.mvexel.intervalswatch.wear.ui.kindColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -93,7 +97,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycle.addObserver(AmbientLifecycleObserver(this, ambientCallback))
-        setContent { MaterialTheme { App(repo, ambient.value, ambientTick.value, burnIn.value) } }
+        setContent { RunbumTheme { App(repo, ambient.value, ambientTick.value, burnIn.value) } }
     }
 
     override fun onStart() {
@@ -155,7 +159,7 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, bur
                     else -> (context as? android.app.Activity)?.finish()
                 }
             },
-            backgroundScrimColor = Color.Black,
+            backgroundScrimColor = Rb.ground,
         ) { isBackground -> if (!isBackground) content() }
     }
 }
@@ -166,7 +170,7 @@ internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, onPi
         item { Text("Workouts", style = MaterialTheme.typography.title3) }
         // Last upload still unresolved after a restart.
         if (save is SaveStatus.Failed) {
-            item { Text(save.reason, fontSize = 11.sp, color = Color(0xFFEF5350), textAlign = TextAlign.Center) }
+            item { Text(save.reason, fontSize = 11.sp, color = Rb.signal, textAlign = TextAlign.Center) }
         }
         if (workouts.isEmpty()) {
             item {
@@ -264,9 +268,9 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
     val step = s.step
     val p = s.progress
 
-    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
         if (step != null) {
-            ProgressArc(p.fraction.toFloat(), if (s.paused) Color.Gray else kindColor(step.kind))
+            ProgressArc(p.fraction.toFloat(), if (s.paused) Rb.ink3 else kindColor(step.kind), dashed = s.paused)
         }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -277,12 +281,19 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
                 Text("Workout done", style = MaterialTheme.typography.title2)
                 Text(Format.duration(s.activeSec))
             } else {
-                Text(
-                    if (s.paused) "PAUSED" else listOfNotNull(step.repeat, step.label).joinToString("  "),
-                    color = if (s.paused) PausedAmber else kindColor(step.kind),
-                    fontSize = 13.sp, fontWeight = if (s.paused) FontWeight.Bold else null,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
+                if (s.paused) {
+                    // Paused is a treatment, not a hue: inverted pill (black on ink).
+                    Text(
+                        "PAUSED", color = Rb.ground, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                        modifier = Modifier.background(Rb.ink, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 1.dp),
+                    )
+                } else {
+                    Text(
+                        listOfNotNull(step.repeat, step.label).joinToString("  "),
+                        color = kindColor(step.kind), fontSize = 13.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 // Big number: what's left of this step.
                 val left = when {
                     p.remainingSec != null -> Format.duration(p.remainingSec!!)
@@ -296,12 +307,9 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
                 step.primaryTarget?.let { t ->
                     val live = s.live(t.metric)
                     val cmp = live?.let { t.compare(it, p.fraction) }
-                    val color = when (cmp) {
-                        null -> Color.Gray
-                        0 -> Color(0xFF4CAF50)
-                        -1 -> Color(0xFF42A5F5)
-                        else -> Color(0xFFEF5350)
-                    }
+                    // On target is plain ink; off target is a black-on-signal pill around the value plus ▲/▼ word.
+                    val offTarget = cmp != null && cmp != 0
+                    val color = if (cmp == null) Rb.ink3 else Rb.ink
                     val isPace = t.metric == Metric.PACE
                     val choice = if (isPace) paceChoice(live, s.stepAvgSpeed, paceView) else null
                     val heroValue = if (choice != null) choice.hero else live
@@ -312,14 +320,18 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
                         modifier = if (isPace && !s.paused) Modifier.paceToggleGesture(onTogglePace) else Modifier,
                     ) {
                         if (heroValue != null) {
-                            Text(Format.value(t.metric, heroValue, w.paceUnit), fontSize = 28.sp, color = color, fontWeight = FontWeight.Bold)
+                            Text(
+                                Format.value(t.metric, heroValue, w.paceUnit), fontSize = 28.sp, fontWeight = FontWeight.Bold,
+                                color = if (offTarget) Rb.ground else color,
+                                modifier = if (offTarget) Modifier.background(Rb.signal, RoundedCornerShape(50)).padding(horizontal = 8.dp) else Modifier,
+                            )
                             Column {
                                 val unit = Format.unitLabel(t.metric, w.paceUnit, w.sport)
                                 Text(if (choice != null) "${choice.heroView.label} $unit" else unit, fontSize = 12.sp, color = TargetColor)
-                                cue(cmp)?.let { Text(it, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold) }
+                                cue(cmp)?.let { Text(it, fontSize = 12.sp, color = Rb.signal, fontWeight = FontWeight.Bold) }
                             }
                         } else {
-                            Text(noValueText(s, t.metric), fontSize = 22.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                            Text(noValueText(s, t.metric), fontSize = 22.sp, color = Rb.ink3, fontWeight = FontWeight.Bold)
                         }
                     }
                     if (choice != null && !nextNear) choice.other?.let {
@@ -329,12 +341,12 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
                     else Text(Format.target(t, p.fraction, w.paceUnit, w.sport), fontSize = 18.sp, color = TargetColor, maxLines = 1)
                 }
                 if (nextNear && step.primaryTarget == null) s.next?.let { n -> NextBig(n, w) }
-                Text(secondaryLine(s), fontSize = 12.sp, color = Color.LightGray)
+                Text(secondaryLine(s), fontSize = 12.sp, color = Rb.ink2)
                 }
             }
-            s.error?.let { Text(it, fontSize = 11.sp, color = Color(0xFFEF5350)) }
+            s.error?.let { Text(it, fontSize = 11.sp, color = Rb.signal) }
 
-            if (s.paused || step == null) Text("Hold ■ to end", fontSize = 11.sp, color = Color.Gray)
+            if (s.paused || step == null) Text("Hold ■ to end", fontSize = 11.sp, color = Rb.ink3)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (s.paused) {
                     CompactButton(onClick = { ExerciseService.resume(ctx) }) { Text("▶") }
@@ -358,19 +370,23 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
 
 /** Full ring on the bezel: dim track plus a sweep for step progress, in the step's kind colour. */
 @Composable
-internal fun ProgressArc(fraction: Float, color: Color) {
+internal fun ProgressArc(fraction: Float, color: Color, dashed: Boolean = false) {
     Canvas(Modifier.fillMaxSize()) {
         val w = 5.dp.toPx()
         val inset = w / 2
         val arcSize = Size(size.width - w, size.height - w)
         val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
-        drawArc(color.copy(alpha = 0.2f), 0f, 360f, false, topLeft, arcSize, style = Stroke(w))
+        if (dashed) {
+            // Paused: the ring becomes a dashed ink3 line.
+            drawArc(color, 0f, 360f, false, topLeft, arcSize, style = Stroke(w / 2, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 8f))))
+            return@Canvas
+        }
+        drawArc(Rb.track, 0f, 360f, false, topLeft, arcSize, style = Stroke(w))
         drawArc(color, -90f, 360f * fraction.coerceIn(0f, 1f), false, topLeft, arcSize, style = Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round))
     }
 }
 
-private val PausedAmber = Color(0xFFFFB300)
-private val TargetColor = Color(0xFFEEEEEE)
+private val TargetColor = Rb.ink2
 
 private const val NEXT_NEAR_SEC = 10.0
 private const val NEXT_NEAR_M = 100.0
@@ -411,7 +427,7 @@ internal fun HoldToEnd(onEnd: () -> Unit) {
     val progress = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     Box(
-        Modifier.size(40.dp).background(Color(0xFFB71C1C), CircleShape).pointerInput(Unit) {
+        Modifier.size(40.dp).background(Rb.signal.copy(alpha = 0.35f), CircleShape).pointerInput(Unit) {
             detectTapGestures(onPress = {
                 val job = scope.launch {
                     progress.animateTo(1f, androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.LinearEasing))
@@ -426,7 +442,7 @@ internal fun HoldToEnd(onEnd: () -> Unit) {
     ) {
         Canvas(Modifier.fillMaxSize()) {
             drawArc(
-                Color.White, -90f, 360f * progress.value, false,
+                Rb.signal, -90f, 360f * progress.value, false,
                 style = Stroke(width = 4.dp.toPx()), size = Size(size.width, size.height),
             )
         }
@@ -456,13 +472,13 @@ private fun secondaryLine(s: Session): String {
     return parts.joinToString("  ")
 }
 
-private val AmbientGray = Color(0xFFBDBDBD)
+private val AmbientGray = Rb.ink2
 
 /** Ambient for the list, detail and summary screens: nothing bright to burn in. */
 @Composable
 internal fun AmbientIdle() {
-    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-        Text("Intervals", color = Color.DarkGray, fontSize = 16.sp)
+    Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
+        Text("Intervals", color = Rb.ink3, fontSize = 16.sp)
     }
 }
 
@@ -472,7 +488,7 @@ internal fun AmbientWorkout(s: Session, shift: Int = 0, paceView: PaceView = Pac
     val w = s.workout
     val step = s.step
     val p = s.progress
-    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 22.dp).offset(x = (shift * 4).dp, y = (shift * 4).dp)) {
             if (step == null) {
                 Text("Workout done", color = AmbientGray, fontSize = 18.sp)
@@ -495,7 +511,7 @@ internal fun AmbientWorkout(s: Session, shift: Int = 0, paceView: PaceView = Pac
                     p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit) + " left"
                     else -> "+" + Format.duration(p.elapsedSec)
                 }
-                Text(left, color = Color.LightGray, fontSize = 16.sp)
+                Text(left, color = Rb.ink2, fontSize = 16.sp)
             }
         }
     }
@@ -511,11 +527,11 @@ internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
         item { Text("Steps ${minOf(s.stepIndex, s.workout.steps.size)}/${s.workout.steps.size}") }
         item {
             when (save) {
-                SaveStatus.Saving -> Text("Saving…", color = Color(0xFF90CAF9))
-                SaveStatus.Saved -> Text("Saved to intervals.icu", color = Color(0xFFA5D6A7), textAlign = TextAlign.Center)
+                SaveStatus.Saving -> Text("Saving…", color = Rb.ink2)
+                SaveStatus.Saved -> Text("✓ Saved to intervals.icu", color = Rb.ink, textAlign = TextAlign.Center)
                 is SaveStatus.Failed -> Text(
                     save.reason, fontSize = 12.sp, textAlign = TextAlign.Center,
-                    color = if (save.reason == "Nothing recorded") Color.Gray else Color(0xFFEF5350),
+                    color = if (save.reason == "Nothing recorded") Rb.ink3 else Rb.signal,
                 )
                 null -> Unit
             }
@@ -524,12 +540,6 @@ internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
     }
 }
 
-private fun kindColor(k: StepKind): Color = when (k) {
-    StepKind.WARMUP -> Color(0xFF90CAF9)
-    StepKind.ACTIVE -> Color(0xFFFFB74D)
-    StepKind.REST -> Color(0xFFA5D6A7)
-    StepKind.COOLDOWN -> Color(0xFF90CAF9)
-}
 
 /** Minimal list DSL so the same screen code renders as a ScalingLazyColumn on the watch and as a
  *  plain Column in inspection mode (Paparazzi can't render ScalingLazyColumn). */
