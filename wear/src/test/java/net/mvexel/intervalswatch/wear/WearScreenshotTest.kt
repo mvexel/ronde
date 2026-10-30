@@ -9,7 +9,9 @@ import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import net.mvexel.intervalswatch.shared.Samples
 import net.mvexel.intervalswatch.shared.SaveStatus
+import net.mvexel.intervalswatch.shared.Metric
 import net.mvexel.intervalswatch.shared.StepProgress
+import net.mvexel.intervalswatch.shared.Target
 import net.mvexel.intervalswatch.shared.Workout
 import net.mvexel.intervalswatch.shared.WorkoutStep
 import net.mvexel.intervalswatch.shared.StepKind
@@ -66,19 +68,32 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
     @Test fun listPhoneLoggedOut() = snap { WorkoutList(emptyList(), phoneLoggedIn = false) {} }
 
     @Test fun rideInRange() = snap {
-        ActiveWorkout(session(Samples.ride, 3, 312.0, power = 307.0, hr = 162.0, speed = 9.1))
+        ActiveWorkout(clock = "14:05", s = session(Samples.ride, 3, 312.0, power = 307.0, hr = 162.0, speed = 9.1))
     }
 
     @Test fun rideTooLow() = snap {
-        ActiveWorkout(session(Samples.ride, 5, 205.0, power = 281.0, hr = 158.0, speed = 8.7))
+        ActiveWorkout(clock = "14:05", s = session(Samples.ride, 5, 205.0, power = 281.0, hr = 158.0, speed = 8.7))
     }
 
     @Test fun runTooFast() = snap {
-        ActiveWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8))
+        ActiveWorkout(clock = "14:05", s = session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8))
     }
 
-    @Test fun runTooFastAvgHero() = snap {
-        ActiveWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8), PaceView.AVG)
+    private val hrRun get() = Samples.run.copy(steps = listOf(
+        WorkoutStep("Tempo", StepKind.ACTIVE, durationSec = 600, targets = listOf(Target(Metric.HEART_RATE, 160.0, 170.0)), primary = Metric.HEART_RATE, repeat = "2/4"),
+        Samples.run.steps[0],
+    ))
+
+    @Test fun runHrStep() = snap {
+        ActiveWorkout(clock = "14:05", s = session(hrRun, 0, 431.0, hr = 175.0, speed = 3.4, stepAvg = 3.3))
+    }
+
+    @Test fun indoorRide() = snap {
+        ActiveWorkout(clock = "14:05", s = session(Samples.ride.copy(indoor = true), 3, 312.0, power = 307.0, hr = 162.0))
+    }
+
+    @Test fun controlsOnTap() = snap {
+        ActiveWorkout(clock = "14:05", s = session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8), controlsInitiallyUp = true)
     }
 
     @Test fun ambientRunAvg() = snap {
@@ -86,19 +101,19 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
     }
 
     @Test fun runDistanceStep() = snap {
-        ActiveWorkout(session(Samples.run, 0, null, remainingM = 1240.0, hr = 138.0, speed = 3.02))
+        ActiveWorkout(clock = "14:05", s = session(Samples.run, 0, null, remainingM = 1240.0, hr = 138.0, speed = 3.02))
     }
 
     @Test fun runNextNearEnd() = snap {
-        ActiveWorkout(session(Samples.run, 1, 8.0, hr = 171.0, speed = 3.2))
+        ActiveWorkout(clock = "14:05", s = session(Samples.run, 1, 8.0, hr = 171.0, speed = 3.2))
     }
 
     @Test fun runGpsWaiting() = snap {
-        ActiveWorkout(session(Samples.run, 1, 300.0, hr = 120.0).copy(gpsReady = false))
+        ActiveWorkout(clock = "14:05", s = session(Samples.run, 1, 300.0, hr = 120.0).copy(gpsReady = false))
     }
 
     @Test fun rideNoPower() = snap {
-        ActiveWorkout(session(Samples.ride, 3, 312.0, hr = 140.0).copy(powerStatus = PowerMeter.Status.DISCONNECTED))
+        ActiveWorkout(clock = "14:05", s = session(Samples.ride, 3, 312.0, hr = 140.0).copy(powerStatus = PowerMeter.Status.DISCONNECTED))
     }
 
     @Test fun ambient() = snap {
@@ -111,7 +126,7 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
     ))
 
     @Test fun openRide() = snap {
-        ActiveWorkout(session(openRide, 0, null, power = 150.0, hr = 128.0, speed = 8.0))
+        ActiveWorkout(clock = "14:05", s = session(openRide, 0, null, power = 150.0, hr = 128.0, speed = 8.0))
     }
 
     @Test fun openRideAmbient() = snap {
@@ -119,15 +134,15 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
     }
 
     @Test fun lapStep() = snap {
-        ActiveWorkout(session(lapRun, 0, null, hr = 128.0, speed = 3.0))
+        ActiveWorkout(clock = "14:05", s = session(lapRun, 0, null, hr = 128.0, speed = 3.0))
     }
 
     @Test fun pausedOpenRide() = snap {
-        ActiveWorkout(session(openRide, 0, null, hr = 128.0, paused = true))
+        ActiveWorkout(clock = "14:05", s = session(openRide, 0, null, hr = 128.0, paused = true))
     }
 
     @Test fun paused() = snap {
-        ActiveWorkout(session(Samples.ride, 3, 312.0, power = 0.0, hr = 140.0, paused = true))
+        ActiveWorkout(clock = "14:05", s = session(Samples.ride, 3, 312.0, power = 0.0, hr = 140.0, paused = true))
     }
 
     @Test fun powerMeterPicker() = snap {
