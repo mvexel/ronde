@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.animation.core.Animatable
@@ -23,6 +25,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -298,7 +302,7 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
                 val left = when {
                     p.remainingSec != null -> Format.duration(p.remainingSec!!)
                     p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit)
-                    else -> "+" + Format.duration(p.elapsedSec)
+                    else -> Format.duration(p.elapsedSec)
                 }
                 Column(Modifier.alpha(if (s.paused) 0.5f else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(left, fontSize = 30.sp, fontWeight = FontWeight.Bold)
@@ -353,11 +357,13 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
                     HoldToEnd { ExerciseService.end(ctx) }
                 } else {
                     CompactButton(onClick = { ExerciseService.pause(ctx) }) { Text("❚❚") }
-                    if (step != null) {
+                    if (step != null && s.next != null) {
+                        // Lap ends an open-ended step, Skip a timed/distance one; hidden when it would end the workout.
                         CompactButton(
                             onClick = { ExerciseService.lap(ctx) },
                             colors = ButtonDefaults.secondaryButtonColors(),
-                        ) { Text("⏭") }
+                            modifier = Modifier.height(40.dp).widthIn(min = 64.dp),
+                        ) { Text(if (step.endsOnLap) "Lap" else "Skip", fontSize = 14.sp, maxLines = 1) }
                     } else {
                         HoldToEnd { ExerciseService.end(ctx) }
                     }
@@ -421,16 +427,19 @@ private fun NextBig(n: WorkoutStep, w: Workout) {
     n.primaryTarget?.let { Text(Format.target(it, 0.0, w.paceUnit, w.sport), fontSize = 18.sp, color = TargetColor, maxLines = 1) }
 }
 
-/** End button that must be held for a second; a ring fills while held, and letting go cancels. */
+/** End button that must be held for a second; a ring fills around it while held, and letting go cancels. */
 @Composable
 internal fun HoldToEnd(onEnd: () -> Unit) {
     val progress = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    // 52 dp button inside a 60 dp box: the 4 dp ring sits outside the button so the finger doesn't cover it.
     Box(
-        Modifier.size(40.dp).background(Rb.signal.copy(alpha = 0.35f), CircleShape).pointerInput(Unit) {
+        Modifier.size(60.dp).pointerInput(Unit) {
             detectTapGestures(onPress = {
                 val job = scope.launch {
                     progress.animateTo(1f, androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.LinearEasing))
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onEnd()
                 }
                 tryAwaitRelease()
@@ -440,11 +449,13 @@ internal fun HoldToEnd(onEnd: () -> Unit) {
         },
         contentAlignment = Alignment.Center,
     ) {
+        Box(Modifier.size(52.dp).background(Rb.signal.copy(alpha = 0.35f), CircleShape))
         Canvas(Modifier.fillMaxSize()) {
-            drawArc(
-                Rb.signal, -90f, 360f * progress.value, false,
-                style = Stroke(width = 4.dp.toPx()), size = Size(size.width, size.height),
-            )
+            val w = 4.dp.toPx()
+            val tl = androidx.compose.ui.geometry.Offset(w / 2, w / 2)
+            val sz = Size(size.width - w, size.height - w)
+            drawArc(Rb.track, 0f, 360f, false, tl, sz, style = Stroke(w))
+            drawArc(Rb.signal, -90f, 360f * progress.value, false, tl, sz, style = Stroke(w))
         }
         Text("■")
     }
@@ -509,7 +520,7 @@ internal fun AmbientWorkout(s: Session, shift: Int = 0, paceView: PaceView = Pac
                 val left = when {
                     p.remainingSec != null -> "${kotlin.math.ceil(p.remainingSec!! / 60).toInt()} min left"
                     p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit) + " left"
-                    else -> "+" + Format.duration(p.elapsedSec)
+                    else -> Format.duration(p.elapsedSec)
                 }
                 Text(left, color = Rb.ink2, fontSize = 16.sp)
             }

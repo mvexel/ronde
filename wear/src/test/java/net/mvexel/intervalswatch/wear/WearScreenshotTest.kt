@@ -11,6 +11,8 @@ import net.mvexel.intervalswatch.shared.Samples
 import net.mvexel.intervalswatch.shared.SaveStatus
 import net.mvexel.intervalswatch.shared.StepProgress
 import net.mvexel.intervalswatch.shared.Workout
+import net.mvexel.intervalswatch.shared.WorkoutStep
+import net.mvexel.intervalswatch.shared.StepKind
 import org.junit.Rule
 import org.junit.Test
 
@@ -97,6 +99,27 @@ class WearScreenshotTest {
 
     @Test fun ambient() = snap {
         AmbientWorkout(session(Samples.ride, 3, 312.0, power = 307.0, hr = 162.0, speed = 9.1))
+    }
+
+    private val openRide get() = Samples.ride.copy(steps = listOf(WorkoutStep("Free ride", StepKind.ACTIVE)))
+    private val lapRun get() = Samples.run.copy(steps = listOf(
+        WorkoutStep("Warm-up", StepKind.WARMUP), Samples.run.steps[1], Samples.run.steps[0],
+    ))
+
+    @Test fun openRide() = snap {
+        ActiveWorkout(session(openRide, 0, null, power = 150.0, hr = 128.0, speed = 8.0))
+    }
+
+    @Test fun openRideAmbient() = snap {
+        AmbientWorkout(session(openRide, 0, null, power = 150.0, hr = 128.0, speed = 8.0))
+    }
+
+    @Test fun lapStep() = snap {
+        ActiveWorkout(session(lapRun, 0, null, hr = 128.0, speed = 3.0))
+    }
+
+    @Test fun pausedOpenRide() = snap {
+        ActiveWorkout(session(openRide, 0, null, hr = 128.0, paused = true))
     }
 
     @Test fun paused() = snap {
