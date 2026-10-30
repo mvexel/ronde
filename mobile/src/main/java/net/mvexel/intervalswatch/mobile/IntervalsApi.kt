@@ -7,20 +7,29 @@ import net.mvexel.intervalswatch.shared.Workout
 import okhttp3.Credentials
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
+/** [retryable] is false for client errors another attempt can't fix (anything 4xx except 401/403/429). */
+class UploadHttpException(val code: Int, message: String) : IOException(message) {
+    val retryable: Boolean get() = code !in 400..499 || code == 401 || code == 403 || code == 429
+}
+
 /** Personal API key auth: HTTP Basic with username "API_KEY" (intervals.icu → Settings → Developer). */
 class IntervalsApi(
+    private val baseUrl: String = "https://intervals.icu",
     private val client: OkHttpClient = OkHttpClient.Builder()
         .callTimeout(30, TimeUnit.SECONDS)
         .build(),
 ) {
     suspend fun plannedWorkouts(settings: Settings, from: LocalDate = LocalDate.now()): List<Workout> =
         withContext(Dispatchers.IO) {
-            val url = "https://intervals.icu/api/v1/athlete/${settings.athleteId}/events".toHttpUrl()
+            val url = "$baseUrl/api/v1/athlete/${settings.athleteId}/events".toHttpUrl()
                 .newBuilder()
                 .addQueryParameter("oldest", from.toString())
                 .addQueryParameter("newest", from.plusDays(settings.daysAhead.toLong()).toString())
@@ -38,6 +47,32 @@ class IntervalsApi(
                     throw IOException(friendlyHttpError(resp.code, body))
                 }
                 IntervalsParser.parseEvents(body)
+            }
+        }
+
+    /**
+     * Uploads a FIT file as a new activity. Returns normally for 200/201 (200 = duplicate, already
+     * there); throws [IOException] otherwise. The message never includes the API key.
+     */
+    suspend fun uploadActivity(settings: Settings, fit: ByteArray, fileName: String, name: String, externalId: String) =
+        withContext(Dispatchers.IO) {
+            val url = "$baseUrl/api/v1/athlete/${settings.athleteId}/activities".toHttpUrl()
+                .newBuilder()
+                .addQueryParameter("name", name)
+                .addQueryParameter("external_id", externalId)
+                .build()
+            val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+                .addFormDataPart("file", fileName, fit.toRequestBody("application/octet-stream".toMediaType()))
+                .build()
+            val req = Request.Builder()
+                .url(url)
+                .header("Authorization", Credentials.basic("API_KEY", settings.apiKey))
+                .post(body)
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    throw UploadHttpException(resp.code, friendlyHttpError(resp.code, resp.body?.string().orEmpty()))
+                }
             }
         }
 }

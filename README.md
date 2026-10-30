@@ -50,13 +50,18 @@ On the phone, enter your API key from intervals.icu → Settings → Developer S
 Version 0.1 is untested on a real device so far.
 
 - [ ] Verify on a Pixel Watch (Health Services data types, GPS acquisition, BLE power).
-- [ ] Save the recorded activity: write a FIT file and upload it to intervals.icu
-      (`POST /api/v1/athlete/{id}/activities`), or write it to Health Connect. Today the recording is **not saved**.
+- [x] Save the recorded activity: the watch writes a FIT file, sends it to the phone, which uploads it to intervals.icu
+      (retries until it works) and tells the watch "saved" or why not. Untested on a real device.
 - [ ] Ambient mode / Ongoing Activity instead of keeping the screen on.
 - [ ] Remember the BLE power meter, and pair a specific device instead of picking the first one found.
 - [ ] Cadence from the sensor; HR strap over BLE.
 - [ ] Store the API key with Android Keystore rather than plain DataStore.
 - [ ] App icons.
+
+### Known limitations
+
+- A running workout is recorded in memory and written as a FIT file only when it ends, so if the watch app is
+  killed or crashes mid-workout the recording is lost.
 
 ## Screenshots
 
