@@ -230,4 +230,41 @@ class ParserTest {
         assertEquals(Metric.PACE, w.steps.first().primary)
         assertEquals("spm", Format.unitLabel(Metric.CADENCE, w.paceUnit, w.sport))
     }
+
+    @Test
+    fun eventWithoutStepsBecomesOneStep() {
+        val body = """
+        [{"id": 9, "type": "Walk", "category": "WORKOUT", "name": "Walk", "moving_time": 1800,
+          "start_date_local": "2026-11-01T08:00:00"},
+         {"id": 10, "type": "Walk", "category": "WORKOUT", "name": "Stroll", "distance": 3000.0,
+          "workout_doc": {}},
+         {"id": 11, "type": "Walk", "category": "WORKOUT", "name": "Free"},
+         {"id": 12, "category": "NOTE"}]
+        """.trimIndent()
+        val r = IntervalsParser.parse(body)
+        assertEquals(4, r.received)
+        assertEquals(listOf(12L), r.dropped.map { it.id })
+        val (a, b, c) = r.workouts.sortedBy { it.id }
+        assertEquals(Sport.WALK, a.sport)
+        assertEquals(1, a.steps.size)
+        assertEquals(1800, a.steps[0].durationSec)
+        assertTrue(a.steps[0].targets.isEmpty())
+        assertEquals(3000.0, b.steps[0].distanceM!!, 0.0)
+        assertNull(b.steps[0].durationSec)
+        assertTrue(c.steps[0].endsOnLap)
+    }
+
+    @Test
+    fun openWalkWithNothingBecomesStopwatchStep() {
+        val body = """[{"id": 20, "type": "Walk", "category": "WORKOUT", "name": "Walk"}]"""
+        val w = IntervalsParser.parse(body).workouts.single()
+        assertEquals(Sport.WALK, w.sport)
+        assertEquals("Walk", w.name)
+        val s = w.steps.single()
+        assertEquals("Walk", s.label)
+        assertTrue(s.endsOnLap)
+        assertTrue(s.targets.isEmpty())
+        val emptyDoc = """[{"id": 21, "type": "Walk", "category": "WORKOUT", "workout_doc": {"steps": []}}]"""
+        assertTrue(IntervalsParser.parse(emptyDoc).workouts.single().steps.single().endsOnLap)
+    }
 }

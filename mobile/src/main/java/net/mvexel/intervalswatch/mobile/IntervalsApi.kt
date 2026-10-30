@@ -1,5 +1,6 @@
 package net.mvexel.intervalswatch.mobile
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.mvexel.intervalswatch.shared.IntervalsParser
@@ -19,6 +20,8 @@ import java.util.concurrent.TimeUnit
 class UploadHttpException(val code: Int, message: String) : IOException(message) {
     val retryable: Boolean get() = code !in 400..499 || code == 401 || code == 403 || code == 429
 }
+
+private const val TAG = "IntervalsSync"
 
 /** Personal API key auth: HTTP Basic with username "API_KEY" (intervals.icu → Settings → Developer). */
 class IntervalsApi(
@@ -44,9 +47,13 @@ class IntervalsApi(
             client.newCall(req).execute().use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
+                    Log.w(TAG, "HTTP ${resp.code}")
                     throw IOException(friendlyHttpError(resp.code, body))
                 }
-                IntervalsParser.parseEvents(body)
+                val parsed = IntervalsParser.parse(body)
+                Log.i(TAG, "HTTP ${resp.code}, events ${parsed.received}, workouts kept ${parsed.workouts.size}")
+                parsed.dropped.forEach { Log.i(TAG, "dropped event ${it.id} type=${it.type}: ${it.reason}") }
+                parsed.workouts
             }
         }
 
