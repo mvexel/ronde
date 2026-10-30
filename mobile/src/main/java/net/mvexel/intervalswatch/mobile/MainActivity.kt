@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import net.mvexel.intervalswatch.mobile.ui.RunbumTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -106,7 +107,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            RunbumTheme {
                 val vm: MainViewModel = viewModel()
                 val st by vm.state.collectAsStateWithLifecycle()
                 MainScreen(st, onSync = vm::sync, onEdit = vm::edit, onSave = vm::save)

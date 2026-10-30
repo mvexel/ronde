@@ -1,6 +1,6 @@
 package net.mvexel.intervalswatch.mobile
 
-import androidx.compose.material3.MaterialTheme
+import net.mvexel.intervalswatch.mobile.ui.RunbumTheme
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import net.mvexel.intervalswatch.shared.Samples
@@ -17,7 +17,7 @@ class PhoneScreenshotTest {
     )
 
     @Test fun synced() = paparazzi.snapshot {
-        MaterialTheme {
+        RunbumTheme {
             MainScreen(
                 UiState(
                     settings = Settings(apiKey = "x"),
@@ -31,7 +31,7 @@ class PhoneScreenshotTest {
     }
 
     @Test fun setup() = paparazzi.snapshot {
-        MaterialTheme {
+        RunbumTheme {
             MainScreen(UiState(editing = true), onSync = {}, onEdit = {}, onSave = {})
         }
     }
