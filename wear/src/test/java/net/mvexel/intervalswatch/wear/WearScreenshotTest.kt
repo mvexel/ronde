@@ -1,6 +1,7 @@
 package net.mvexel.intervalswatch.wear
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.ComposeView
 import androidx.wear.compose.material.MaterialTheme
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
@@ -20,8 +21,12 @@ class WearScreenshotTest {
         maxPercentDifference = 0.1,
     )
 
-    private fun snap(content: @Composable () -> Unit) =
-        paparazzi.snapshot { MaterialTheme { content() } }
+    // Render via a ComposeView with a time offset: ScalingLazyColumn only shows its items after
+    // the first frame, so a zero-offset snapshot comes out blank.
+    private fun snap(content: @Composable () -> Unit) {
+        val view = ComposeView(paparazzi.context).apply { setContent { MaterialTheme { content() } } }
+        paparazzi.snapshot(view, offsetMillis = 1000L)
+    }
 
     private fun session(
         w: Workout, index: Int, remainingSec: Double?, remainingM: Double? = null,

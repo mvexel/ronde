@@ -182,8 +182,8 @@ internal fun ActiveWorkout(s: Session) {
     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            modifier = Modifier.padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp),
         ) {
             if (step == null) {
                 Text("Workout done", style = MaterialTheme.typography.title2)
@@ -199,7 +199,7 @@ internal fun ActiveWorkout(s: Session) {
                     p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit)
                     else -> "+" + Format.duration(p.elapsedSec)
                 }
-                Text(left, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+                Text(left, fontSize = 34.sp, fontWeight = FontWeight.Bold)
 
                 step.primaryTarget?.let { t ->
                     val live = s.live(t.metric)
@@ -212,7 +212,7 @@ internal fun ActiveWorkout(s: Session) {
                     }
                     Text(
                         live?.let { Format.value(t.metric, it, w.paceUnit) } ?: "--",
-                        fontSize = 30.sp, color = color, fontWeight = FontWeight.Bold,
+                        fontSize = 28.sp, color = color, fontWeight = FontWeight.Bold,
                     )
                     Text(Format.target(t, p.fraction, w.paceUnit), fontSize = 13.sp, color = Color.LightGray)
                 }
@@ -258,7 +258,8 @@ private fun secondaryLine(s: Session): String {
     if (primary != Metric.HEART_RATE) s.heartRate?.let { parts += "♥ ${it.toInt()}" }
     if (primary != Metric.PACE && s.speed != null) {
         parts += if (s.workout.sport == net.mvexel.intervalswatch.shared.Sport.RIDE) {
-            "%.1f km/h".format(s.speed * 3.6)
+            if (s.workout.paceUnit == net.mvexel.intervalswatch.shared.PaceUnit.MILE) "%.1f mph".format(s.speed * 2.23694)
+            else "%.1f km/h".format(s.speed * 3.6)
         } else {
             Format.pace(s.speed, s.workout.paceUnit)
         }

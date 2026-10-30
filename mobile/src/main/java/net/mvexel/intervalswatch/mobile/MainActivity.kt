@@ -189,7 +189,7 @@ private fun WorkoutCard(w: Workout) {
                 add(w.startLocal.replace('T', ' ').take(16))
                 add(w.sport.name.lowercase())
                 w.totalDurationSec?.let { add(Format.duration(it.toDouble())) }
-                add("${w.steps.size} steps")
+                add(if (w.steps.size == 1) "1 step" else "${w.steps.size} steps")
             }
             Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
         }
