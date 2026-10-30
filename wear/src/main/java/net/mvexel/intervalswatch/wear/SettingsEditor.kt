@@ -207,3 +207,11 @@ internal fun playBuzzSample(context: Context, strength: BuzzStrength) {
     val amplitudes = Haptics.amplitudes(Haptics.GO, strength)
     vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
 }
+
+/** The phone's "Test buzzes on the watch" button (settings.md §4 row 6). */
+class TestBuzzService : com.google.android.gms.wearable.WearableListenerService() {
+    override fun onMessageReceived(event: com.google.android.gms.wearable.MessageEvent) {
+        if (event.path != net.mvexel.intervalswatch.shared.SettingsSync.TEST_BUZZ_PATH) return
+        playBuzzSample(this, net.mvexel.intervalswatch.shared.SettingsSync.decodeTestBuzz(event.data))
+    }
+}

@@ -81,4 +81,13 @@ class PhoneScreenshotTest {
             )
         }
     }
+
+    @Test fun watchScreensRun() = paparazzi.snapshot {
+        RunbumTheme {
+            MainScreen(
+                UiState(settings = Settings(token = "x"), watches = listOf("Pixel Watch 3"), watchScreens = true),
+                onSync = {}, onEdit = {}, onSave = {},
+            )
+        }
+    }
 }
