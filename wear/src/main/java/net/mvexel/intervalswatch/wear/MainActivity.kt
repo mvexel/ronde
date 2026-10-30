@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -16,11 +15,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 import net.mvexel.intervalswatch.shared.SaveStatus
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.wear.ambient.AmbientLifecycleObserver
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
@@ -55,6 +54,21 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var repo: WorkoutRepository
 
+    // Ambient mode: the screen dims instead of staying on. The system calls onUpdateAmbient about
+    // once a minute; each call bumps ambientTick so the ambient screen recomposes only then.
+    private val ambient = mutableStateOf(false)
+    private val ambientTick = mutableStateOf(0)
+    private val burnIn = mutableStateOf(false)
+    private val ambientCallback = object : AmbientLifecycleObserver.AmbientLifecycleCallback {
+        override fun onEnterAmbient(ambientDetails: AmbientLifecycleObserver.AmbientDetails) {
+            burnIn.value = ambientDetails.burnInProtectionRequired
+            ambient.value = true
+            ambientTick.value++
+        }
+        override fun onExitAmbient() { ambient.value = false }
+        override fun onUpdateAmbient() { ambientTick.value++ }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repo = WorkoutRepository(this)
@@ -65,7 +79,8 @@ class MainActivity : ComponentActivity() {
                 "run" -> repo.inject(Samples.run)
             }
         }
-        setContent { MaterialTheme { App(repo) } }
+        lifecycle.addObserver(AmbientLifecycleObserver(this, ambientCallback))
+        setContent { MaterialTheme { App(repo, ambient.value, ambientTick.value, burnIn.value) } }
     }
 
     override fun onStart() {
@@ -77,15 +92,10 @@ class MainActivity : ComponentActivity() {
         repo.stopListening()
         super.onStop()
     }
-
-    fun keepScreenOn(on: Boolean) {
-        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    }
 }
 
 @Composable
-private fun App(repo: WorkoutRepository) {
+private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, burnIn: Boolean) {
     val bundle by repo.bundle.collectAsStateWithLifecycle()
     val session by ExerciseService.session.collectAsStateWithLifecycle()
     val save by RecordingStore.status.collectAsStateWithLifecycle()
@@ -101,7 +111,15 @@ private fun App(repo: WorkoutRepository) {
 
     val s = session
     when {
+        ambient && (s == null || s.ended) -> AmbientIdle()
         s != null && s.ended -> Summary(s, save) { ExerciseService.dismiss(); selected = null }
+        s != null && ambient -> {
+            // Freeze the session between ambient updates so the dimmed screen isn't redrawn twice a second.
+            // A step change or pause is shown at once; that is a single redraw.
+            val frozen = remember(ambientTick, s.stepIndex, s.paused) { s }
+            AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0)
+        }
+
         s != null -> ActiveWorkout(s)
         selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
         selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onBack = { selected = null })
@@ -209,10 +227,6 @@ private fun StepRow(w: Workout, s: WorkoutStep) {
 @Composable
 internal fun ActiveWorkout(s: Session) {
     val ctx = LocalContext.current
-    DisposableEffect(Unit) {
-        (ctx as? MainActivity)?.keepScreenOn(true)
-        onDispose { (ctx as? MainActivity)?.keepScreenOn(false) }
-    }
     val w = s.workout
     val step = s.step
     val p = s.progress
@@ -310,8 +324,50 @@ private fun secondaryLine(s: Session): String {
             else -> "no PM"
         }
     }
+    if (!s.workout.indoor) parts += if (s.gpsReady) "GPS" else "GPS…"
     parts += Format.duration(s.activeSec)
     return parts.joinToString("  ")
+}
+
+private val AmbientGray = Color(0xFFBDBDBD)
+
+/** Ambient for the list, detail and summary screens: nothing bright to burn in. */
+@Composable
+internal fun AmbientIdle() {
+    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        Text("Intervals", color = Color.DarkGray, fontSize = 16.sp)
+    }
+}
+
+/** Dimmed, low-power view: current step and time left, black background, no buttons. */
+@Composable
+internal fun AmbientWorkout(s: Session, shift: Int = 0) {
+    val w = s.workout
+    val step = s.step
+    val p = s.progress
+    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 22.dp).offset(x = (shift * 4).dp, y = (shift * 4).dp)) {
+            if (step == null) {
+                Text("Workout done", color = AmbientGray, fontSize = 18.sp)
+            } else {
+                Text(
+                    listOfNotNull(step.repeat, step.label).joinToString("  "),
+                    color = AmbientGray, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                // The target is the biggest thing; time left is whole minutes because the screen
+                // is only redrawn about once a minute (a frozen m:ss would look like a hang).
+                step.primaryTarget?.let {
+                    Text(Format.target(it, p.fraction, w.paceUnit), color = AmbientGray, fontSize = 30.sp, textAlign = TextAlign.Center)
+                }
+                val left = when {
+                    p.remainingSec != null -> "${kotlin.math.ceil(p.remainingSec!! / 60).toInt()} min left"
+                    p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit) + " left"
+                    else -> "+" + Format.duration(p.elapsedSec)
+                }
+                Text(left, color = Color.LightGray, fontSize = 16.sp)
+            }
+        }
+    }
 }
 
 @Composable

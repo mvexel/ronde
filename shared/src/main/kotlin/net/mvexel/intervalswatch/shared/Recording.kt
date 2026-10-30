@@ -54,9 +54,20 @@ class RecordingBuilder(
     private var lapStartM = 0.0
 
     fun add(s: RecSample) {
-        // FIT timestamps have 1 s resolution: keep one record per second.
-        if (samples.lastOrNull()?.let { it.t.toLong() >= s.t.toLong() } == true) return
-        samples += s
+        // FIT timestamps have 1 s resolution: keep one record per second, filling gaps in the
+        // existing one from the new one. Late points (a batch after a tick sample) slot in by time.
+        val sec = s.t.toLong()
+        var i = samples.size
+        while (i > 0 && samples[i - 1].t.toLong() > sec) i--
+        val prev = samples.getOrNull(i - 1)
+        if (prev != null && prev.t.toLong() == sec) {
+            samples[i - 1] = prev.copy(
+                distanceM = prev.distanceM,
+                lat = prev.lat ?: s.lat, lon = prev.lon ?: s.lon, altM = prev.altM ?: s.altM,
+                speed = prev.speed ?: s.speed, hr = prev.hr ?: s.hr,
+                power = prev.power ?: s.power, cadence = prev.cadence ?: s.cadence,
+            )
+        } else samples.add(i, s)
     }
 
     fun pause(t: Double) { if (pausedAt == null) pausedAt = t }

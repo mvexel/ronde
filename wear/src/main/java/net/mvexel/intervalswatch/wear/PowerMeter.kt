@@ -90,6 +90,9 @@ class PowerMeter(private val context: Context) {
     var deviceName: String? = null
         private set
 
+    /** Called from the BLE callback with each smoothed reading. */
+    var onWatts: ((Double) -> Unit)? = null
+
     private val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
     private val store = PowerMeterStore(context)
     private val handler = Handler(Looper.getMainLooper())
@@ -146,7 +149,9 @@ class PowerMeter(private val context: Context) {
             val now = SystemClock.elapsedRealtime()
             samples.addLast(now to p)
             while (samples.isNotEmpty() && now - samples.first().first > 3000) samples.removeFirst()
-            _watts.value = samples.map { it.second }.average()
+            val w = samples.map { it.second }.average()
+            _watts.value = w
+            onWatts?.invoke(w)
         }
     }
 

@@ -29,6 +29,8 @@ import androidx.health.services.client.data.LocationAvailability
 import androidx.health.services.client.data.LocationData
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import androidx.wear.ongoing.OngoingActivity
+import androidx.wear.ongoing.Status
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.await
@@ -91,6 +93,8 @@ class ExerciseService : LifecycleService() {
         private const val ACTION_END = "end"
         private const val CHANNEL = "workout"
         private const val NOTIFICATION_ID = 1
+        private const val STALE_LOCATION_SEC = 10.0
+        private const val STALE_SENSOR_SEC = 15.0
 
         private val _session = MutableStateFlow<Session?>(null)
         val session: StateFlow<Session?> = _session.asStateFlow()
@@ -123,6 +127,7 @@ class ExerciseService : LifecycleService() {
     private var distanceTotal = 0.0
     private var distanceDeltaSum = 0.0
     private var hasDistanceTotal = false
+    private var distanceAnchor = 0.0
     private var heartRate: Double? = null
     private var speed: Double? = null
     private var gpsReady = false
@@ -131,8 +136,16 @@ class ExerciseService : LifecycleService() {
     private var recorder: RecordingBuilder? = null
     private var recordStartMs = 0L
     private var recordStartElapsed = 0L
-    private var lastSampleSec = -1
-    private var location: LocationData? = null
+    // Health Services delivers data in batches when the screen is off, each point stamped with its own
+    // time. Keep the latest values with those times so a sample gets the value from its own moment.
+    private val hrSeries = TimedValues<Double>()
+    private val speedSeries = TimedValues<Double>()
+    private val distanceSeries = TimedValues<Double>()
+    private val powerSeries = TimedValues<Double>()
+    private val locationSeries = TimedValues<LocationData>()
+    private var ongoing: OngoingActivity? = null
+    private var ongoingStep = -2
+    private var ongoingPaused = false
 
     // Alert bookkeeping
     private var outOfRangeSinceSec: Double? = null
@@ -180,8 +193,8 @@ class ExerciseService : LifecycleService() {
         recordStartMs = System.currentTimeMillis()
         recordStartElapsed = SystemClock.elapsedRealtime()
         recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, recordStartMs)
-        lastSampleSec = -1
-        location = null
+        pauseSpans.clear(); pausedSince = null; distanceAnchor = 0.0
+        listOf(hrSeries, speedSeries, distanceSeries, powerSeries, locationSeries).forEach { it.clear() }
         publish()
 
         try {
@@ -206,7 +219,11 @@ class ExerciseService : LifecycleService() {
         if (workout.usesPower && hasPermission(Manifest.permission.BLUETOOTH_CONNECT) &&
             hasPermission(Manifest.permission.BLUETOOTH_SCAN)
         ) {
-            powerMeter = PowerMeter(this).also { it.start() }
+            powerMeter = PowerMeter(this).also {
+                // From the BLE callback, so power keeps its own time when the ticker stalls.
+                it.onWatts = { w -> powerSeries.add(wallSec(), w) }
+                it.start()
+            }
         }
 
         ticker = lifecycleScope.launch {
@@ -222,17 +239,35 @@ class ExerciseService : LifecycleService() {
             state = update.exerciseStateInfo.state
             update.activeDurationCheckpoint?.let { checkpoint = it }
             val m = update.latestMetrics
-            m.getData(DataType.HEART_RATE_BPM).lastOrNull()?.value?.let { if (it > 0) heartRate = it }
-            m.getData(DataType.SPEED).lastOrNull()?.value?.let { s ->
+            val times = sortedSetOf<Double>()
+            m.getData(DataType.HEART_RATE_BPM).forEach { p ->
+                if (p.value > 0) { hrSeries.add(wallOf(p.timeDurationFromBoot), p.value); heartRate = p.value; times += wallOf(p.timeDurationFromBoot) }
+            }
+            m.getData(DataType.SPEED).forEach { p ->
                 // Light smoothing; GPS speed is jumpy.
-                speed = speed?.let { it * 0.7 + s * 0.3 } ?: s
+                speed = speed?.let { it * 0.7 + p.value * 0.3 } ?: p.value
+                speedSeries.add(wallOf(p.timeDurationFromBoot), speed!!)
+                times += wallOf(p.timeDurationFromBoot)
+            }
+            // Distance: cumulative sum of the interval points (each with its own end time), anchored
+            // to DISTANCE_TOTAL, which carries no time of its own.
+            m.getData(DataType.DISTANCE).forEach {
+                distanceDeltaSum += it.value
+                distanceSeries.add(wallOf(it.endDurationFromBoot), distanceDeltaSum + distanceAnchor)
+                times += wallOf(it.endDurationFromBoot)
             }
             m.getData(DataType.DISTANCE_TOTAL)?.let {
                 hasDistanceTotal = true
                 distanceTotal = it.total
+                distanceAnchor = it.total - distanceDeltaSum
             }
-            m.getData(DataType.LOCATION).lastOrNull()?.value?.let { location = it }
-            m.getData(DataType.DISTANCE).forEach { distanceDeltaSum += it.value }
+            m.getData(DataType.LOCATION).forEach { p ->
+                locationSeries.add(wallOf(p.timeDurationFromBoot), p.value)
+                times += wallOf(p.timeDurationFromBoot)
+            }
+            // One recording sample per data point time, so a batch doesn't become a staircase.
+            trackPause()
+            times.forEach { if (!inPause(it)) recordAt(it) }
             if (state?.isEnded == true) {
                 ended = true
                 // Health Services ended it (another app, system): still save what we have.
@@ -255,6 +290,20 @@ class ExerciseService : LifecycleService() {
         }
     }
 
+    /** Pause intervals in wall seconds, so a late batch is judged by point time, not delivery state. */
+    private val pauseSpans = ArrayList<ClosedFloatingPointRange<Double>>()
+    private var pausedSince: Double? = null
+
+    private fun trackPause() {
+        val paused = state?.isPaused == true
+        val since = pausedSince
+        if (paused && since == null) pausedSince = wallSec()
+        else if (!paused && since != null) { pauseSpans += since..wallSec(); pausedSince = null }
+    }
+
+    private fun inPause(wall: Double) =
+        pausedSince?.let { wall >= it } == true || pauseSpans.any { wall in it }
+
     private fun distance(): Double = if (hasDistanceTotal) distanceTotal else distanceDeltaSum
 
     private fun activeSec(): Double {
@@ -274,6 +323,10 @@ class ExerciseService : LifecycleService() {
             outOfRangeSinceSec = null
             if (e.finished && before < e.workout.steps.size) buzzDone() else buzzStepChange()
         }
+        // With a live power meter there may be no HS point for this second (indoor, HR 0), and the
+        // ticker is the only clock: sample here too. The builder merges samples of the same second.
+        if (powerMeter?.watts?.value != null && state == ExerciseState.ACTIVE) recordAt(wallSec())
+        updateOngoing(e, e.progress(t, d).remainingSec)
         record(e, t, d)
         countdown(e, t, d)
         rangeAlert(e, t, d)
@@ -287,18 +340,28 @@ class ExerciseService : LifecycleService() {
         val wall = wallSec()
         if (state?.isPaused == true) r.pause(wall) else r.resume(wall)
         e.current?.let { r.onStep(e.index, it, wall, d) }
-        val sec = t.toInt()
-        if (state != ExerciseState.ACTIVE || sec <= lastSampleSec) return
-        lastSampleSec = sec
-        val loc = location
+    }
+
+    /** Sample made from the series values at wall-clock second [wall]. */
+    private fun recordAt(wall: Double) {
+        val r = recorder ?: return
+        if (wall < 0) return
+        val loc = locationSeries.at(wall, STALE_LOCATION_SEC)
         r.add(
             RecSample(
-                t = wall, distanceM = d, lat = loc?.latitude, lon = loc?.longitude,
+                t = wall,
+                distanceM = distanceSeries.at(wall, Double.MAX_VALUE) ?: distance(),
+                lat = loc?.latitude, lon = loc?.longitude,
                 altM = loc?.altitude?.takeIf { !it.isNaN() },
-                speed = speed, hr = heartRate?.toInt(), power = powerMeter?.watts?.value?.toInt(),
+                speed = speedSeries.at(wall, STALE_SENSOR_SEC),
+                hr = hrSeries.at(wall, STALE_SENSOR_SEC)?.toInt(),
+                power = powerSeries.at(wall, STALE_SENSOR_SEC)?.toInt(),
             ),
         )
     }
+
+    /** Health Services point times are since boot, like elapsedRealtime. */
+    private fun wallOf(sinceBoot: Duration) = (sinceBoot.toMillis() - recordStartElapsed) / 1000.0
 
     private fun countdown(e: WorkoutEngine, t: Double, d: Double) {
         val p = e.progress(t, d)
@@ -372,14 +435,21 @@ class ExerciseService : LifecycleService() {
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
-        val n = NotificationCompat.Builder(this, CHANNEL)
+        val nb = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(workout.name)
             .setContentText("Workout in progress")
             .setContentIntent(open)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_WORKOUT)
+        // Shows the workout on the watch face; tapping it returns to the workout screen.
+        ongoing = OngoingActivity.Builder(applicationContext, NOTIFICATION_ID, nb)
+            .setStaticIcon(android.R.drawable.ic_media_play)
+            .setTouchIntent(open)
+            .setStatus(ongoingStatus(workout.name, null, false))
             .build()
+            .also { it.apply(applicationContext) }
+        val n = nb.build()
         var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH
         if (hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
             types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
@@ -388,6 +458,30 @@ class ExerciseService : LifecycleService() {
             types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         }
         ServiceCompat.startForeground(this, NOTIFICATION_ID, n, types)
+    }
+
+    /** Watch-face chip text: "label m:ss", counting down by itself for timed steps. */
+    private fun ongoingStatus(label: String, remainingSec: Double?, paused: Boolean): Status {
+        val b = Status.Builder().addTemplate("#label# #time#").addPart("label", Status.TextPart(label))
+        // Status parts are rendered against SystemClock.elapsedRealtime().
+        val now = SystemClock.elapsedRealtime()
+        val time = if (remainingSec != null) {
+            val ms = (remainingSec * 1000).toLong()
+            if (paused) Status.TimerPart(now + ms, now, ms) else Status.TimerPart(now + ms)
+        } else {
+            Status.StopwatchPart(SystemClock.elapsedRealtime())
+        }
+        return b.addPart("time", time).build()
+    }
+
+    /** Keep the watch-face status on the current step and the pause state. */
+    private fun updateOngoing(e: WorkoutEngine, remainingSec: Double?) {
+        val paused = state?.isPaused == true
+        if (e.index == ongoingStep && paused == ongoingPaused) return
+        ongoingStep = e.index
+        ongoingPaused = paused
+        val label = e.current?.let { listOfNotNull(it.repeat, it.label).joinToString(" ") } ?: e.workout.name
+        ongoing?.update(applicationContext, ongoingStatus(label, remainingSec, paused))
     }
 
     private fun hasPermission(p: String) =
@@ -406,4 +500,29 @@ class ExerciseService : LifecycleService() {
         powerMeter?.stop()
         super.onDestroy()
     }
+}
+
+/** Values with their wall-clock times; [at] gives the latest one no newer than the time asked for. */
+internal class TimedValues<T> {
+    private val times = ArrayList<Double>()
+    private val values = ArrayList<T>()
+
+    @Synchronized fun add(t: Double, v: T) {
+        if (times.isNotEmpty() && t < times.last()) return
+        times += t; values += v
+        // A batch can span minutes; keep ten minutes of history.
+        var n = 0
+        while (n < times.size && times[n] < t - KEEP_SEC) n++
+        if (n > 0) { times.subList(0, n).clear(); values.subList(0, n).clear() }
+    }
+
+    @Synchronized fun clear() { times.clear(); values.clear() }
+
+    @Synchronized fun at(t: Double, maxAgeSec: Double): T? {
+        var i = times.size - 1
+        while (i >= 0 && times[i] > t) i--
+        return if (i >= 0 && t - times[i] <= maxAgeSec) values[i] else null
+    }
+
+    private companion object { const val KEEP_SEC = 600.0 }
 }

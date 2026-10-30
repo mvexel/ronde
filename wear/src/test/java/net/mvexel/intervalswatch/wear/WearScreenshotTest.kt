@@ -73,6 +73,10 @@ class WearScreenshotTest {
         ActiveWorkout(session(Samples.run, 0, null, remainingM = 1240.0, hr = 138.0, speed = 3.02))
     }
 
+    @Test fun ambient() = snap {
+        AmbientWorkout(session(Samples.ride, 3, 312.0, power = 307.0, hr = 162.0, speed = 9.1))
+    }
+
     @Test fun paused() = snap {
         ActiveWorkout(session(Samples.ride, 3, 312.0, power = 0.0, hr = 140.0, paused = true))
     }
