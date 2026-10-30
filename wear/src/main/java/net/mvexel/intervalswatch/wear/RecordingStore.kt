@@ -36,6 +36,7 @@ import kotlinx.coroutines.sync.withLock
 object RecordingStore {
     private const val TAG = "RecordingStore"
     private const val SEND_TIMEOUT_MS = 90_000L
+    private const val MIN_RECORDING_SEC = 10.0
 
     private val _status = MutableStateFlow<SaveStatus?>(null)
     /** Outcome of the most recent recording, for the summary screen. */
@@ -92,8 +93,9 @@ object RecordingStore {
     fun saveAsync(ctx: Context, rec: Recording) {
         val app = ctx.applicationContext
         restored = true
-        if (rec.samples.isEmpty()) {
-            set(app, SaveStatus.Failed("Nothing was recorded"))
+        // An end at 0:00 or a few seconds in is not worth an activity (and a "phone not reachable" banner).
+        if (rec.samples.isEmpty() || rec.elapsedSec < MIN_RECORDING_SEC) {
+            set(app, SaveStatus.Failed("Nothing recorded"))
             return
         }
         val name = RecordingProtocol.fileName(rec.startEpochMs, rec.name)

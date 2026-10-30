@@ -104,4 +104,11 @@ class WearScreenshotTest {
             SaveStatus.Failed("Phone not connected. Will send when it is."),
         ) {}
     }
+
+    @Test fun summaryNothingRecorded() = snap {
+        Summary(
+            session(Samples.ride, 0, null, ended = true),
+            SaveStatus.Failed("Nothing recorded"),
+        ) {}
+    }
 }

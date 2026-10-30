@@ -306,8 +306,11 @@ class ExerciseService : LifecycleService() {
     private fun trackPause() {
         val paused = state?.isPaused == true
         val since = pausedSince
-        if (paused && since == null) pausedSince = wallSec()
-        else if (!paused && since != null) { pauseSpans += since..wallSec(); pausedSince = null }
+        if (paused && since == null) { pausedSince = wallSec(); vibrate(longArrayOf(0, 100)) }
+        else if (!paused && since != null) {
+            pauseSpans += since..wallSec(); pausedSince = null
+            vibrate(longArrayOf(0, 100, 100, 100))
+        }
     }
 
     private fun inPause(wall: Double) =

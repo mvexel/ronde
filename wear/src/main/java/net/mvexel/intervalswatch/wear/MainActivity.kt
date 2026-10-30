@@ -17,7 +17,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import net.mvexel.intervalswatch.shared.SaveStatus
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -242,8 +253,10 @@ internal fun ActiveWorkout(s: Session) {
                 Text(Format.duration(s.activeSec))
             } else {
                 Text(
-                    listOfNotNull(step.repeat, step.label).joinToString("  "),
-                    color = kindColor(step.kind), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    if (s.paused) "PAUSED" else listOfNotNull(step.repeat, step.label).joinToString("  "),
+                    color = if (s.paused) PausedAmber else kindColor(step.kind),
+                    fontSize = 13.sp, fontWeight = if (s.paused) FontWeight.Bold else null,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 // Big number: what's left of this step.
                 val left = when {
@@ -251,6 +264,7 @@ internal fun ActiveWorkout(s: Session) {
                     p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit)
                     else -> "+" + Format.duration(p.elapsedSec)
                 }
+                Column(Modifier.alpha(if (s.paused) 0.5f else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(left, fontSize = 34.sp, fontWeight = FontWeight.Bold)
 
                 step.primaryTarget?.let { t ->
@@ -275,16 +289,14 @@ internal fun ActiveWorkout(s: Session) {
                         fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
+                }
             }
             s.error?.let { Text(it, fontSize = 11.sp, color = Color(0xFFEF5350)) }
 
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (s.paused) {
                     CompactButton(onClick = { ExerciseService.resume(ctx) }) { Text("▶") }
-                    CompactButton(
-                        onClick = { ExerciseService.end(ctx) },
-                        colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFFB71C1C)),
-                    ) { Text("■") }
+                    HoldToEnd { ExerciseService.end(ctx) }
                 } else {
                     CompactButton(onClick = { ExerciseService.pause(ctx) }) { Text("❚❚") }
                     if (step != null) {
@@ -293,14 +305,43 @@ internal fun ActiveWorkout(s: Session) {
                             colors = ButtonDefaults.secondaryButtonColors(),
                         ) { Text("⏭") }
                     } else {
-                        CompactButton(
-                            onClick = { ExerciseService.end(ctx) },
-                            colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFFB71C1C)),
-                        ) { Text("■") }
+                        HoldToEnd { ExerciseService.end(ctx) }
                     }
                 }
             }
+            if (s.paused) Text("Hold ■ to end", fontSize = 10.sp, color = Color.Gray)
         }
+    }
+}
+
+private val PausedAmber = Color(0xFFFFB300)
+
+/** End button that must be held for a second; a ring fills while held, and letting go cancels. */
+@Composable
+internal fun HoldToEnd(onEnd: () -> Unit) {
+    val progress = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    Box(
+        Modifier.size(40.dp).background(Color(0xFFB71C1C), CircleShape).pointerInput(Unit) {
+            detectTapGestures(onPress = {
+                val job = scope.launch {
+                    progress.animateTo(1f, androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.LinearEasing))
+                    onEnd()
+                }
+                tryAwaitRelease()
+                job.cancel()
+                scope.launch { progress.snapTo(0f) }
+            })
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawArc(
+                Color.White, -90f, 360f * progress.value, false,
+                style = Stroke(width = 4.dp.toPx()), size = Size(size.width, size.height),
+            )
+        }
+        Text("■")
     }
 }
 
@@ -382,7 +423,10 @@ internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
             when (save) {
                 SaveStatus.Saving -> Text("Saving…", color = Color(0xFF90CAF9))
                 SaveStatus.Saved -> Text("Saved to intervals.icu", color = Color(0xFFA5D6A7), textAlign = TextAlign.Center)
-                is SaveStatus.Failed -> Text(save.reason, fontSize = 12.sp, color = Color(0xFFEF5350), textAlign = TextAlign.Center)
+                is SaveStatus.Failed -> Text(
+                    save.reason, fontSize = 12.sp, textAlign = TextAlign.Center,
+                    color = if (save.reason == "Nothing recorded") Color.Gray else Color(0xFFEF5350),
+                )
                 null -> Unit
             }
         }
