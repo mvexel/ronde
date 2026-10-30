@@ -8,6 +8,7 @@ import androidx.wear.compose.material.MaterialTheme
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import net.mvexel.intervalswatch.shared.Samples
+import net.mvexel.intervalswatch.shared.SaveStatus
 import net.mvexel.intervalswatch.shared.StepProgress
 import net.mvexel.intervalswatch.shared.Workout
 import org.junit.Rule
@@ -77,6 +78,13 @@ class WearScreenshotTest {
     }
 
     @Test fun summary() = snap {
-        Summary(session(Samples.ride, Samples.ride.steps.size, null, ended = true)) {}
+        Summary(session(Samples.ride, Samples.ride.steps.size, null, ended = true), SaveStatus.Saved) {}
+    }
+
+    @Test fun summaryFailed() = snap {
+        Summary(
+            session(Samples.ride, Samples.ride.steps.size, null, ended = true),
+            SaveStatus.Failed("Phone not connected. Will send when it is."),
+        ) {}
     }
 }

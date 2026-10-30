@@ -25,6 +25,7 @@ import androidx.health.services.client.data.ExerciseState
 import androidx.health.services.client.data.ExerciseType
 import androidx.health.services.client.data.ExerciseUpdate
 import androidx.health.services.client.data.LocationAvailability
+import androidx.health.services.client.data.LocationData
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
@@ -36,6 +37,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import net.mvexel.intervalswatch.shared.Metric
+import net.mvexel.intervalswatch.shared.RecSample
+import net.mvexel.intervalswatch.shared.RecordingBuilder
 import net.mvexel.intervalswatch.shared.Sport
 import net.mvexel.intervalswatch.shared.StepProgress
 import net.mvexel.intervalswatch.shared.Sync
@@ -123,6 +126,9 @@ class ExerciseService : LifecycleService() {
     private var speed: Double? = null
     private var gpsReady = false
     private var ended = false
+    private var recorder: RecordingBuilder? = null
+    private var lastSampleSec = -1
+    private var location: LocationData? = null
 
     // Alert bookkeeping
     private var outOfRangeSinceSec: Double? = null
@@ -165,11 +171,14 @@ class ExerciseService : LifecycleService() {
         }
         val e = WorkoutEngine(workout).also { it.start() }
         engine = e
+        recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, System.currentTimeMillis())
+        lastSampleSec = -1
+        location = null
         publish()
 
         try {
             val caps = client.getCapabilitiesAsync().await().getExerciseTypeCapabilities(type)
-            val wanted = setOf(DataType.HEART_RATE_BPM, DataType.SPEED, DataType.DISTANCE_TOTAL, DataType.DISTANCE)
+            val wanted = setOf(DataType.HEART_RATE_BPM, DataType.SPEED, DataType.DISTANCE_TOTAL, DataType.DISTANCE, DataType.LOCATION)
             val dataTypes = wanted.filter { it in caps.supportedDataTypes }.toSet()
             val useGps = !workout.indoor && hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
             val config = ExerciseConfig.builder(type)
@@ -212,6 +221,7 @@ class ExerciseService : LifecycleService() {
                 hasDistanceTotal = true
                 distanceTotal = it.total
             }
+            m.getData(DataType.LOCATION).lastOrNull()?.value?.let { location = it }
             m.getData(DataType.DISTANCE).forEach { distanceDeltaSum += it.value }
             if (state?.isEnded == true) ended = true
             tick()
@@ -250,9 +260,26 @@ class ExerciseService : LifecycleService() {
             outOfRangeSinceSec = null
             if (e.finished && before < e.workout.steps.size) buzzDone() else buzzStepChange()
         }
+        record(e, t, d)
         countdown(e, t, d)
         rangeAlert(e, t, d)
         publish()
+    }
+
+    private fun record(e: WorkoutEngine, t: Double, d: Double) {
+        val r = recorder ?: return
+        e.current?.let { r.onStep(e.index, it, t, d) }
+        val sec = t.toInt()
+        if (state != ExerciseState.ACTIVE || sec <= lastSampleSec) return
+        lastSampleSec = sec
+        val loc = location
+        r.add(
+            RecSample(
+                t = t, distanceM = d, lat = loc?.latitude, lon = loc?.longitude,
+                altM = loc?.altitude?.takeIf { !it.isNaN() },
+                speed = speed, hr = heartRate?.toInt(), power = powerMeter?.watts?.value?.toInt(),
+            ),
+        )
     }
 
     private fun countdown(e: WorkoutEngine, t: Double, d: Double) {
@@ -311,6 +338,9 @@ class ExerciseService : LifecycleService() {
         powerMeter?.stop()
         ended = true
         publish()
+        val rec = recorder?.build(activeSec(), distance())
+        recorder = null
+        if (rec != null) RecordingStore.save(applicationContext, rec)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

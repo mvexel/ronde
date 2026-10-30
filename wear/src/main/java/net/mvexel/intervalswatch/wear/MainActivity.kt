@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import net.mvexel.intervalswatch.shared.SaveStatus
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,13 +78,18 @@ class MainActivity : ComponentActivity() {
 private fun App(repo: WorkoutRepository) {
     val bundle by repo.bundle.collectAsStateWithLifecycle()
     val session by ExerciseService.session.collectAsStateWithLifecycle()
+    val save by RecordingStore.status.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var selected by remember { mutableStateOf<Workout?>(null) }
 
-    LaunchedEffect(Unit) { runCatching { repo.load() } }
+    LaunchedEffect(Unit) {
+        runCatching { repo.load() }
+        runCatching { RecordingStore.sendPending(context) }
+    }
 
     val s = session
     when {
-        s != null && s.ended -> Summary(s) { ExerciseService.dismiss(); selected = null }
+        s != null && s.ended -> Summary(s, save) { ExerciseService.dismiss(); selected = null }
         s != null -> ActiveWorkout(s)
         selected != null -> WorkoutDetail(selected!!, onBack = { selected = null })
         else -> WorkoutList(bundle?.workouts.orEmpty()) { selected = it }
@@ -276,13 +283,21 @@ private fun secondaryLine(s: Session): String {
 }
 
 @Composable
-internal fun Summary(s: Session, onDone: () -> Unit) {
+internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
     WatchList {
         item { Text("Finished", style = MaterialTheme.typography.title2) }
         item { Text(s.workout.name, textAlign = TextAlign.Center) }
         item { Text("Time ${Format.duration(s.activeSec)}") }
         if (s.distanceM > 0) item { Text(Format.distance(s.distanceM, s.workout.paceUnit)) }
         item { Text("Steps ${minOf(s.stepIndex, s.workout.steps.size)}/${s.workout.steps.size}") }
+        item {
+            when (save) {
+                SaveStatus.Saving -> Text("Saving…", color = Color(0xFF90CAF9))
+                SaveStatus.Saved -> Text("Saved to intervals.icu", color = Color(0xFFA5D6A7), textAlign = TextAlign.Center)
+                is SaveStatus.Failed -> Text(save.reason, fontSize = 12.sp, color = Color(0xFFEF5350), textAlign = TextAlign.Center)
+                null -> Unit
+            }
+        }
         item { Button(onClick = onDone) { Text("OK") } }
     }
 }
