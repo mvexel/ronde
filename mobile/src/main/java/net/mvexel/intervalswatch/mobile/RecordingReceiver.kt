@@ -54,15 +54,17 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val name = inputData.getString(KEY_NAME) ?: return Result.failure()
         val file = File(recordingsDir(applicationContext), name)
         if (!file.exists()) return Result.success()
+        val library = RecordingLibrary.of(applicationContext)
+        if (library.state(name) == UploadState.UPLOADED) return Result.success()
         val settings = SettingsStore(applicationContext).current()
         val failure = uploadRecordingFile(IntervalsApi(), settings, file)
 
         if (failure?.authRejected == true) WatchSync.pushLoggedIn(applicationContext, false)
         notifyWatch(name, failure)
         return when {
-            failure == null -> { file.delete(); Result.success() }
+            failure == null -> { library.markUploaded(name); library.prune(); Result.success() }
             failure.retryable -> Result.retry()
-            else -> { file.delete(); Result.failure() } // the watch keeps its own copy
+            else -> { library.markFailed(name, failure.reason); library.prune(); Result.failure() } // kept on the phone; the watch keeps its own copy too
         }
     }
 

@@ -2,7 +2,15 @@ package net.mvexel.intervalswatch.mobile
 
 import android.app.Application
 import android.content.Intent
+import android.content.Context
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -59,6 +67,8 @@ data class UiState(
     val editing: Boolean = false,
     /** intervals.icu answered 401: the user has to log in again. */
     val authExpired: Boolean = false,
+    /** Recordings kept on the phone, newest first. */
+    val recordings: List<RecordingItem> = emptyList(),
 ) {
     // Settings.toString already hides the token; keep the whole state out of logs anyway.
     override fun toString() = "UiState(settings=$settings, workouts=${workouts.size}, busy=$busy, editing=$editing, authExpired=$authExpired)"
@@ -73,9 +83,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val s = store.current()
             _state.update { it.copy(settings = s) }
+            refreshRecordings()
             if (!s.configured) WatchSync.pushLoggedIn(getApplication(), false)
             refreshWatches()
             if (s.configured) sync()
+        }
+    }
+
+    private val library = RecordingLibrary.of(app)
+
+    fun refreshRecordings() {
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { library.recent() }
+            _state.update { it.copy(recordings = r) }
         }
     }
 
@@ -162,8 +182,48 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
+/** CreateDocument with the MIME type chosen per call (the stock contract fixes it at construction). */
+private class CreateExport : ActivityResultContracts.CreateDocument("*/*") {
+    var mime = "*/*"
+    override fun createIntent(context: Context, input: String) = super.createIntent(context, input).setType(mime)
+}
+
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
+    private val createExport = CreateExport()
+    private var pendingSave: Pair<String, ExportFormat>? = null
+    private val saveLauncher = registerForActivityResult(createExport) { uri -> uri?.let(::writeExport) }
+
+    private fun writeExport(uri: Uri) {
+        val (fileName, format) = pendingSave ?: return
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = RecordingLibrary.of(this@MainActivity).export(fileName, format)
+                    contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
+                }.isSuccess
+            }
+            Toast.makeText(this@MainActivity, if (ok) "Saved" else "Could not save", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun save(item: RecordingItem, format: ExportFormat) {
+        pendingSave = item.fileName to format
+        createExport.mime = format.mime
+        saveLauncher.launch(RecordingLibrary.of(this).exportName(item.fileName, format))
+    }
+
+    private fun share(item: RecordingItem, format: ExportFormat) {
+        lifecycleScope.launch {
+            val intent = withContext(Dispatchers.IO) { runCatching { RecordingLibrary.shareIntent(this@MainActivity, item.fileName, format) }.getOrNull() }
+            if (intent != null) startActivity(intent) else Toast.makeText(this@MainActivity, "Could not share", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        vm.refreshRecordings() // uploads finish while the app is in the background
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -174,6 +234,7 @@ class MainActivity : ComponentActivity() {
                 val st by vm.state.collectAsStateWithLifecycle()
                 MainScreen(
                     st, onSync = vm::sync, onEdit = vm::edit, onSave = vm::save, onLogout = vm::logout, onClose = vm::closeEditor,
+                    onShareRecording = ::share, onSaveRecording = ::save,
                     onLogin = {
                         lifecycleScope.launch {
                             if (!launchLoginTab(this@MainActivity, vm.beginLogin())) vm.showStatus("No browser found to log in with")
@@ -200,6 +261,8 @@ internal fun MainScreen(
     onLogin: () -> Unit = {},
     onLogout: () -> Unit = {},
     onClose: () -> Unit = {},
+    onShareRecording: (RecordingItem, ExportFormat) -> Unit = { _, _ -> },
+    onSaveRecording: (RecordingItem, ExportFormat) -> Unit = { _, _ -> },
 ) {
     Scaffold { pad ->
         Column(
@@ -229,6 +292,10 @@ internal fun MainScreen(
                 st.status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(st.workouts, key = { it.id }) { WorkoutCard(it) }
+                    if (st.recordings.isNotEmpty()) {
+                        item { Text("Recordings", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
+                        items(st.recordings, key = { "rec-" + it.fileName }) { RecordingCard(it, onShareRecording, onSaveRecording) }
+                    }
                 }
             }
         }
@@ -341,6 +408,45 @@ private fun WorkoutCard(w: Workout) {
                 add(if (w.steps.size == 1) "1 step" else "${w.steps.size} steps")
             }
             Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+internal fun RecordingCard(r: RecordingItem, onShare: (RecordingItem, ExportFormat) -> Unit, onSave: (RecordingItem, ExportFormat) -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text(r.title, style = MaterialTheme.typography.titleMedium)
+            val when_ = r.startEpochSec?.let {
+                java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().toString().replace('T', ' ').take(16)
+            }
+            Text(listOfNotNull(when_, "${(r.sizeBytes + 512) / 1024} kB").joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+            Text(
+                when (r.state) {
+                    UploadState.UPLOADED -> "✓ Uploaded"
+                    UploadState.PENDING -> "⟳ Waiting to upload"
+                    UploadState.FAILED -> "! Not uploaded" + r.reason.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (r.state == UploadState.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
+            Row {
+                FormatMenu("Share") { onShare(r, it) }
+                FormatMenu("Save") { onSave(r, it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FormatMenu(label: String, onPick: (ExportFormat) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Column {
+        TextButton(onClick = { open = true }) { Text(label) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            ExportFormat.entries.forEach { f ->
+                DropdownMenuItem(text = { Text("$label ${f.name}") }, onClick = { open = false; onPick(f) })
+            }
         }
     }
 }
