@@ -226,6 +226,19 @@ class MainActivity : ComponentActivity() {
         vm.refreshRecordings() // uploads finish while the app is in the background
     }
 
+    private val screenSettings by lazy { ScreenSettingsStore(this) }
+
+    override fun onStart() {
+        super.onStart()
+        screenSettings.startListening()
+        lifecycleScope.launch { screenSettings.load() }
+    }
+
+    override fun onStop() {
+        screenSettings.stopListening()
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // After process death the redirect starts a fresh instance; the pending login is read from storage.
