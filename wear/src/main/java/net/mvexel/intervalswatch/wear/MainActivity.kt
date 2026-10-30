@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.wear.compose.foundation.lazy.ScalingLazyListAnchorType
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.Chip
@@ -92,7 +94,7 @@ private fun App(repo: WorkoutRepository) {
 
 @Composable
 internal fun WorkoutList(workouts: List<Workout>, onPick: (Workout) -> Unit) {
-    ScalingLazyColumn(Modifier.fillMaxSize()) {
+    ScalingLazyColumn(Modifier.fillMaxSize(), autoCentering = null, state = rememberScalingLazyListState(initialCenterItemIndex = 0), anchorType = ScalingLazyListAnchorType.ItemStart) {
         item { Text("Workouts", style = MaterialTheme.typography.title3) }
         if (workouts.isEmpty()) {
             item {
@@ -138,7 +140,7 @@ private fun WorkoutDetail(w: Workout, onBack: () -> Unit) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         ExerciseService.start(ctx, w)
     }
-    ScalingLazyColumn(Modifier.fillMaxSize()) {
+    ScalingLazyColumn(Modifier.fillMaxSize(), autoCentering = null, state = rememberScalingLazyListState(initialCenterItemIndex = 0), anchorType = ScalingLazyListAnchorType.ItemStart) {
         item { Text(w.name, style = MaterialTheme.typography.title3, textAlign = TextAlign.Center) }
         item {
             Button(onClick = { launcher.launch(perms) }) { Text("Start") }
@@ -278,7 +280,7 @@ private fun secondaryLine(s: Session): String {
 
 @Composable
 internal fun Summary(s: Session, onDone: () -> Unit) {
-    ScalingLazyColumn(Modifier.fillMaxSize()) {
+    ScalingLazyColumn(Modifier.fillMaxSize(), autoCentering = null, state = rememberScalingLazyListState(initialCenterItemIndex = 0), anchorType = ScalingLazyListAnchorType.ItemStart) {
         item { Text("Finished", style = MaterialTheme.typography.title2) }
         item { Text(s.workout.name, textAlign = TextAlign.Center) }
         item { Text("Time ${Format.duration(s.activeSec)}") }
