@@ -1,9 +1,12 @@
 package net.mvexel.intervalswatch.mobile
 
 import android.app.Application
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,6 +70,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             refreshWatches()
             if (s.configured) sync()
         }
+    }
+
+    private val pending = PendingLoginStore(app)
+
+    /** Starts a login: persists verifier and state, then returns what the Custom Tab needs to open. */
+    suspend fun beginLogin(): PendingLogin = pending.start()
+
+    /** Handles a redirect. Without a pending login (stale, replayed or foreign) it is ignored. */
+    fun handleRedirect(uri: String?) {
+        if (!isLoginRedirect(uri)) return
+        viewModelScope.launch {
+            val p = pending.take() ?: return@launch
+            when (val r = OAuth.parseRedirect(uri!!, p.state)) {
+                is RedirectResult.Failure -> _state.update { it.copy(status = loginError(r.error)) }
+                is RedirectResult.Code -> {
+                    _state.update { it.copy(busy = true, status = "Logging in…") }
+                    runCatching { OAuth.exchange(r.code, p.verifier, OAUTH_CLIENT_ID) }
+                        .onSuccess { t ->
+                            val old = store.current()
+                            save(old.copy(token = t.accessToken, athleteId = t.athleteId, athleteName = t.athleteName, authType = AuthType.OAUTH))
+                        }
+                        .onFailure { e -> _state.update { it.copy(busy = false, status = e.message ?: "Login failed") } }
+                }
+            }
+        }
+    }
+
+    private fun loginError(e: OAuthError) = when (e) {
+        OAuthError.AccessDenied -> "Login cancelled"
+        OAuthError.StateMismatch -> "Login failed: response did not match the request"
+        OAuthError.MissingCode -> "Login failed: no code returned"
     }
 
     fun edit() = _state.update { it.copy(editing = true) }
@@ -104,20 +137,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 }
 
 class MainActivity : ComponentActivity() {
+    private val vm: MainViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // After process death the redirect starts a fresh instance; the pending login is read from storage.
+        if (savedInstanceState == null) vm.handleRedirect(intent?.dataString)
         setContent {
             RunbumTheme {
-                val vm: MainViewModel = viewModel()
                 val st by vm.state.collectAsStateWithLifecycle()
-                MainScreen(st, onSync = vm::sync, onEdit = vm::edit, onSave = vm::save)
+                MainScreen(st, onSync = vm::sync, onEdit = vm::edit, onSave = vm::save, onLogin = {
+                    lifecycleScope.launch { launchLoginTab(this@MainActivity, vm.beginLogin()) }
+                })
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        vm.handleRedirect(intent.dataString)
     }
 }
 
 @Composable
-internal fun MainScreen(st: UiState, onSync: () -> Unit, onEdit: () -> Unit, onSave: (Settings) -> Unit) {
+internal fun MainScreen(st: UiState, onSync: () -> Unit, onEdit: () -> Unit, onSave: (Settings) -> Unit, onLogin: () -> Unit = {}) {
     Scaffold { pad ->
         Column(
             Modifier.padding(pad).padding(16.dp).fillMaxSize(),
@@ -128,7 +172,8 @@ internal fun MainScreen(st: UiState, onSync: () -> Unit, onEdit: () -> Unit, onS
                 Text("for intervals.icu", style = MaterialTheme.typography.bodySmall)
             }
             if (st.editing) {
-                SettingsForm(st.settings, onSave = onSave)
+                SettingsForm(st.settings, onSave = onSave, onLogin = onLogin, busy = st.busy)
+                st.status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Button(onClick = onSync, enabled = !st.busy) { Text("Sync now") }
@@ -150,14 +195,15 @@ internal fun MainScreen(st: UiState, onSync: () -> Unit, onEdit: () -> Unit, onS
 }
 
 @Composable
-private fun SettingsForm(initial: Settings, onSave: (Settings) -> Unit) {
+private fun SettingsForm(initial: Settings, onSave: (Settings) -> Unit, onLogin: () -> Unit, busy: Boolean) {
     var athlete by remember { mutableStateOf(initial.athleteId) }
     var key by remember { mutableStateOf(initial.token) }
     var days by remember { mutableStateOf(initial.daysAhead.toString()) }
     var auto by remember { mutableStateOf(initial.autoSync) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = onLogin, enabled = !busy) { Text("Log in with intervals.icu") }
         Text(
-            "Find your API key and athlete ID in intervals.icu → Settings → Developer Settings.",
+            "Or paste an API key. Find your API key and athlete ID in intervals.icu → Settings → Developer Settings.",
             style = MaterialTheme.typography.bodySmall,
         )
         OutlinedTextField(
