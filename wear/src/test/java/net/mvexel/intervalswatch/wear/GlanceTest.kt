@@ -69,4 +69,34 @@ class GlanceTest {
         assertEquals("59:59", totalTimeText(3599.0))
         assertEquals("1:00", totalTimeText(3600.0))
     }
+
+    @Test fun ringSegmentsShareTheCircle() {
+        val steps = listOf(
+            WorkoutStep("a", StepKind.WARMUP, durationSec = 60),
+            WorkoutStep("b", StepKind.ACTIVE, durationSec = 180),
+            WorkoutStep("c", StepKind.COOLDOWN),
+        )
+        val seg = ringSegments(steps)
+        assertEquals(3, seg.size)
+        assertEquals(0f, seg[0].startDeg, 0f)
+        // 60 s : 180 s, and the lap step weighs 120 s.
+        assertEquals(seg[0].sweepDeg * 3, seg[1].sweepDeg, 1e-3f)
+        assertEquals(360f, seg.last().startDeg + seg.last().sweepDeg + 2f, 1e-3f)
+        assertEquals(seg[1].startDeg + seg[1].sweepDeg / 2, ringNowDeg(seg, 1, 0.5), 1e-3f)
+        assertEquals(360f, ringNowDeg(seg, 3, 0.0), 0f)
+    }
+
+    @Test fun averagesNeedSomeData() {
+        val step = WorkoutStep("Run", StepKind.ACTIVE, durationSec = 60)
+        val w = Workout(1, "t", Sport.RUN, startLocal = "2026-10-30T07:00:00", steps = listOf(step))
+        val s = Session(
+            w, 0, step, null, StepProgress(0.0, 60.0, 60.0, null, 0.0), 600.0, 2000.0,
+            heartRate = null, speed = null, power = null, cadence = null, powerStatus = null,
+            gpsReady = true, paused = false, finished = false, ended = false, avgHeartRate = 151.6,
+        )
+        assertEquals(2000.0 / 600.0, averageSpeed(s)!!, 1e-9)
+        assertNull(averageSpeed(s.copy(activeSec = 5.0)))
+        assertEquals("151", fieldValue(s, net.mvexel.intervalswatch.shared.Field.AVG_HR, "7:00"))
+        assertNull(fieldValue(s, net.mvexel.intervalswatch.shared.Field.AVG_POWER, "7:00"))
+    }
 }

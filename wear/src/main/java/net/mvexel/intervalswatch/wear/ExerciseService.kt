@@ -47,6 +47,7 @@ import net.mvexel.intervalswatch.shared.Metric
 import net.mvexel.intervalswatch.shared.RecSample
 import net.mvexel.intervalswatch.shared.RecordingBuilder
 import net.mvexel.intervalswatch.shared.Sport
+import net.mvexel.intervalswatch.shared.RunningMean
 import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.StepProgress
 import net.mvexel.intervalswatch.shared.Sync
@@ -76,6 +77,9 @@ data class Session(
     val error: String? = null,
     /** Average speed over the current step so far (m/s); null until it is meaningful. */
     val stepAvgSpeed: Double? = null,
+    /** Running means over the whole session so far (Totals page). */
+    val avgHeartRate: Double? = null,
+    val avgPower: Double? = null,
 ) {
     fun live(metric: Metric): Double? = when (metric) {
         Metric.POWER -> power
@@ -141,6 +145,8 @@ class ExerciseService : LifecycleService() {
     private var hasDistanceTotal = false
     private var distanceAnchor = 0.0
     private var heartRate: Double? = null
+    private val hrMean = RunningMean()
+    private val powerMean = RunningMean()
     private var cadence: Double? = null
     private var speed: Double? = null
     private var gpsReady = false
@@ -218,6 +224,7 @@ class ExerciseService : LifecycleService() {
         recordStartElapsed = SystemClock.elapsedRealtime()
         recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, recordStartMs, workout.id.takeUnless { workout.isOpen })
         cadence = null
+        hrMean.clear(); powerMean.clear()
         pauseSpans.clear(); pausedSince = null; distanceAnchor = 0.0
         listOf(hrSeries, speedSeries, distanceSeries, powerSeries, cadenceSeries, locationSeries).forEach { it.clear() }
         publish()
@@ -365,6 +372,10 @@ class ExerciseService : LifecycleService() {
         // With a live power meter there may be no HS point for this second (indoor, HR 0), and the
         // ticker is the only clock: sample here too. The builder merges samples of the same second.
         if (powerMeter?.watts?.value != null && state == ExerciseState.ACTIVE) recordAt(wallSec())
+        if (state == ExerciseState.ACTIVE) {
+            heartRate?.let { hrMean.add(it) }
+            powerMeter?.watts?.value?.let { powerMean.add(it) }
+        }
         syncWakeLock()
         syncGoals(e)
         updateOngoing(e, e.progress(t, d).remainingSec)
@@ -520,6 +531,8 @@ class ExerciseService : LifecycleService() {
             ended = ended,
             error = _session.value?.error,
             stepAvgSpeed = stepAvgSpeed(d - e.stepStartM, e.progress(t, d).elapsedSec),
+            avgHeartRate = hrMean.value,
+            avgPower = powerMean.value,
         )
     }
 
