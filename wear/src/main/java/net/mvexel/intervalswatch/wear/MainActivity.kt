@@ -33,9 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
-import androidx.wear.compose.foundation.lazy.items
-import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
-import androidx.wear.compose.foundation.lazy.ScalingLazyListAnchorType
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.Chip
@@ -94,7 +91,7 @@ private fun App(repo: WorkoutRepository) {
 
 @Composable
 internal fun WorkoutList(workouts: List<Workout>, onPick: (Workout) -> Unit) {
-    ScalingLazyColumn(Modifier.fillMaxSize(), autoCentering = null, state = rememberScalingLazyListState(initialCenterItemIndex = 0), anchorType = ScalingLazyListAnchorType.ItemStart) {
+    WatchList {
         item { Text("Workouts", style = MaterialTheme.typography.title3) }
         if (workouts.isEmpty()) {
             item {
@@ -140,7 +137,7 @@ private fun WorkoutDetail(w: Workout, onBack: () -> Unit) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         ExerciseService.start(ctx, w)
     }
-    ScalingLazyColumn(Modifier.fillMaxSize(), autoCentering = null, state = rememberScalingLazyListState(initialCenterItemIndex = 0), anchorType = ScalingLazyListAnchorType.ItemStart) {
+    WatchList {
         item { Text(w.name, style = MaterialTheme.typography.title3, textAlign = TextAlign.Center) }
         item {
             Button(onClick = { launcher.launch(perms) }) { Text("Start") }
@@ -280,7 +277,7 @@ private fun secondaryLine(s: Session): String {
 
 @Composable
 internal fun Summary(s: Session, onDone: () -> Unit) {
-    ScalingLazyColumn(Modifier.fillMaxSize(), autoCentering = null, state = rememberScalingLazyListState(initialCenterItemIndex = 0), anchorType = ScalingLazyListAnchorType.ItemStart) {
+    WatchList {
         item { Text("Finished", style = MaterialTheme.typography.title2) }
         item { Text(s.workout.name, textAlign = TextAlign.Center) }
         item { Text("Time ${Format.duration(s.activeSec)}") }
@@ -295,4 +292,33 @@ private fun kindColor(k: StepKind): Color = when (k) {
     StepKind.ACTIVE -> Color(0xFFFFB74D)
     StepKind.REST -> Color(0xFFA5D6A7)
     StepKind.COOLDOWN -> Color(0xFF90CAF9)
+}
+
+/** Minimal list DSL so the same screen code renders as a ScalingLazyColumn on the watch and as a
+ *  plain Column in inspection mode (Paparazzi can't render ScalingLazyColumn). */
+internal class WatchListScope {
+    val entries = mutableListOf<@Composable () -> Unit>()
+    fun item(content: @Composable () -> Unit) { entries += content }
+    fun <T> items(list: List<T>, key: ((T) -> Any)? = null, content: @Composable (T) -> Unit) {
+        list.forEach { t -> entries += { content(t) } }
+    }
+    fun items(count: Int, content: @Composable (Int) -> Unit) {
+        repeat(count) { i -> entries += { content(i) } }
+    }
+}
+
+@Composable
+internal fun WatchList(build: WatchListScope.() -> Unit) {
+    val entries = WatchListScope().apply(build).entries
+    if (androidx.compose.ui.platform.LocalInspectionMode.current) {
+        Column(
+            Modifier.fillMaxSize().padding(top = 28.dp, start = 12.dp, end = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) { entries.forEach { it() } }
+    } else {
+        ScalingLazyColumn(Modifier.fillMaxSize()) {
+            items(entries.size) { i -> entries[i]() }
+        }
+    }
 }
