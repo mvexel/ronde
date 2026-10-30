@@ -121,20 +121,36 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, bur
     }
 
     val s = session
-    when {
-        ambient && (s == null || s.ended) -> AmbientIdle()
-        s != null && s.ended -> Summary(s, save) { ExerciseService.dismiss(); selected = null }
-        s != null && ambient -> {
-            // Freeze the session between ambient updates so the dimmed screen isn't redrawn twice a second.
-            // A step change or pause is shown at once; that is a single redraw.
-            val frozen = remember(ambientTick, s.stepIndex, s.paused) { s }
-            AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0)
-        }
+    // Swipe right goes back one screen (list: leaves the app), but never during a workout.
+    val content: @Composable () -> Unit = {
+        when {
+            ambient && (s == null || s.ended) -> AmbientIdle()
+            s != null && s.ended -> Summary(s, save) { ExerciseService.dismiss(); selected = null }
+            s != null && ambient -> {
+                // Freeze the session between ambient updates so the dimmed screen isn't redrawn twice a second.
+                // A step change or pause is shown at once; that is a single redraw.
+                val frozen = remember(ambientTick, s.stepIndex, s.paused) { s }
+                AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0)
+            }
 
-        s != null -> ActiveWorkout(s)
-        selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
-        selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onBack = { selected = null })
-        else -> WorkoutList(bundle?.workouts.orEmpty(), save) { selected = it }
+            s != null -> ActiveWorkout(s)
+            selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
+            selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onBack = { selected = null })
+            else -> WorkoutList(bundle?.workouts.orEmpty(), save) { selected = it }
+        }
+    }
+    if (s != null) content()
+    else androidx.compose.runtime.key(selected, picking) {
+        androidx.wear.compose.material.SwipeToDismissBox(
+            onDismissed = {
+                when {
+                    picking -> picking = false
+                    selected != null -> selected = null
+                    else -> (context as? android.app.Activity)?.finish()
+                }
+            },
+            backgroundScrimColor = Color.Black,
+        ) { isBackground -> if (!isBackground) content() }
     }
 }
 
@@ -283,7 +299,7 @@ internal fun ActiveWorkout(s: Session) {
                     Text(Format.target(t, p.fraction, w.paceUnit), fontSize = 13.sp, color = Color.LightGray)
                 }
                 Text(secondaryLine(s), fontSize = 12.sp, color = Color.LightGray)
-                s.next?.let { n ->
+                if (!s.paused) s.next?.let { n ->
                     Text(
                         "Next: ${n.label}" + (n.primaryTarget?.let { " " + Format.target(it, 0.0, w.paceUnit) } ?: ""),
                         fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -293,6 +309,7 @@ internal fun ActiveWorkout(s: Session) {
             }
             s.error?.let { Text(it, fontSize = 11.sp, color = Color(0xFFEF5350)) }
 
+            if (s.paused) Text("Hold ■ to end", fontSize = 11.sp, color = Color.Gray)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (s.paused) {
                     CompactButton(onClick = { ExerciseService.resume(ctx) }) { Text("▶") }
@@ -309,7 +326,7 @@ internal fun ActiveWorkout(s: Session) {
                     }
                 }
             }
-            if (s.paused) Text("Hold ■ to end", fontSize = 10.sp, color = Color.Gray)
+
         }
     }
 }

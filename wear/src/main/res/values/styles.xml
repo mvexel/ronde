@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- No swipe-to-dismiss: a stray swipe must not close a running workout. -->
+    <!-- The window's own swipe-to-dismiss is off; MainActivity's SwipeToDismissBox does it per screen
+         and not during a workout. -->
     <style name="AppTheme" parent="@android:style/Theme.DeviceDefault">
         <item name="android:windowSwipeToDismiss">false</item>
     </style>
