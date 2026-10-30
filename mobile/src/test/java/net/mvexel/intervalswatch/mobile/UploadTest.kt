@@ -99,6 +99,27 @@ class UploadTest {
         f.delete()
     }
 
+    @Test fun uploadPairsWithThePlannedEvent() {
+        server.enqueue(MockResponse().setResponseCode(201).setBody("[]"))
+        val f = File(System.getProperty("java.io.tmpdir"), net.mvexel.intervalswatch.shared.RecordingProtocol.fileName(1_790_000_000_000L, "Tempo", 123456789L))
+        f.writeBytes(fit)
+        assertNull(runBlocking { uploadRecordingFile(api, settings, f) })
+        val url = server.takeRequest().requestUrl!!
+        assertEquals("123456789", url.queryParameter("paired_event_id"))
+        assertEquals("Tempo", url.queryParameter("name"))
+        assertEquals("intervalswatch-1790000000", url.queryParameter("external_id"))
+        f.delete()
+    }
+
+    @Test fun noEventIdSendsNoPairedParameter() {
+        server.enqueue(MockResponse().setResponseCode(201).setBody("[]"))
+        val f = File(System.getProperty("java.io.tmpdir"), net.mvexel.intervalswatch.shared.RecordingProtocol.fileName(1_790_000_000_001L, "Free"))
+        f.writeBytes(fit)
+        assertNull(runBlocking { uploadRecordingFile(api, settings, f) })
+        assertNull(server.takeRequest().requestUrl!!.queryParameter("paired_event_id"))
+        f.delete()
+    }
+
     @Test fun missingKeyDoesNotCallTheServer() {
         val file = File.createTempFile("1_Ride", ".fit")
         val failure = runBlocking { uploadRecordingFile(api, Settings(apiKey = ""), file) }

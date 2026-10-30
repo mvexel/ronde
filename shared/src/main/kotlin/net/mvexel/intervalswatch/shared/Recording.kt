@@ -29,6 +29,8 @@ data class Recording(
     /** Wall-clock length (FIT total_elapsed_time). */
     val elapsedSec: Double,
     val totalM: Double,
+    /** intervals.icu id of the planned event this was recorded for; null for open/free workouts. */
+    val eventId: Long? = null,
 ) {
     /** Moving/timer time: elapsed minus pauses (FIT total_timer_time). */
     val timerSec: Double get() = timerBetween(0.0, elapsedSec)
@@ -43,6 +45,7 @@ class RecordingBuilder(
     private val sport: Sport,
     private val indoor: Boolean,
     private val startEpochMs: Long,
+    private val eventId: Long? = null,
 ) {
     private val samples = ArrayList<RecSample>()
     private val laps = ArrayList<RecLap>()
@@ -92,7 +95,7 @@ class RecordingBuilder(
         resume(t)
         if (lapIndex >= 0) closeLap(t, d)
         lapIndex = -1
-        return Recording(name, sport, indoor, startEpochMs, samples.toList(), laps.toList(), pauses.toList(), t, d)
+        return Recording(name, sport, indoor, startEpochMs, samples.toList(), laps.toList(), pauses.toList(), t, d, eventId)
     }
 
     private fun closeLap(t: Double, d: Double) {
@@ -117,11 +120,15 @@ object RecordingProtocol {
     private const val MAX_NAME_BYTES = 110
     const val PHONE_CAPABILITY = "intervalswatch_phone"
 
-    /** `<epochSec>_<base64url(workout name)>.fit`: safe as a path segment and carries the real name. */
-    fun fileName(startEpochMs: Long, name: String): String {
+    /**
+     * `<epochSec>_<base64url(workout name)>[.e<eventId>].fit`: safe as a path segment and carries the
+     * real name and, when there is one, the planned event id (base64url has no '.', so it can't clash).
+     * Files without the id part (older pending ones) stay valid.
+     */
+    fun fileName(startEpochMs: Long, name: String, eventId: Long? = null): String {
         val enc = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString(truncateUtf8(name, MAX_NAME_BYTES).toByteArray(Charsets.UTF_8))
-        return "${startEpochMs / 1000}_$enc.fit"
+        return "${startEpochMs / 1000}_$enc${eventId?.let { ".e$it" }.orEmpty()}.fit"
     }
 
     /** Cuts [s] at a code point boundary so its UTF-8 form is at most [maxBytes]. */
@@ -140,8 +147,12 @@ object RecordingProtocol {
 
     /** The workout name carried by [fileName]; falls back to "Workout". */
     fun displayName(fileName: String): String = runCatching {
-        String(java.util.Base64.getUrlDecoder().decode(fileName.removeSuffix(".fit").substringAfter('_')), Charsets.UTF_8)
+        String(java.util.Base64.getUrlDecoder().decode(fileName.removeSuffix(".fit").substringBefore('.').substringAfter('_')), Charsets.UTF_8)
     }.getOrNull()?.ifBlank { null } ?: "Workout"
+
+    /** The planned event id carried by [fileName], or null (no id, or an older file name). */
+    fun eventId(fileName: String): Long? =
+        Regex("\\.e(\\d+)\\.fit$").find(fileName)?.groupValues?.get(1)?.toLongOrNull()
 
     fun externalId(fileName: String): String = "intervalswatch-${fileName.substringBefore('_')}"
 

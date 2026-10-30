@@ -46,6 +46,21 @@ class FitWriterTest {
         return counts
     }
 
+    @Test fun eventIdRoundTripsThroughTheFileName() {
+        val f = RecordingProtocol.fileName(1_790_000_000_000L, "Tempo 3x10'", 987654321012L)
+        assertEquals(987654321012L, RecordingProtocol.eventId(f))
+        assertEquals("Tempo 3x10'", RecordingProtocol.displayName(f))
+        assertEquals("intervalswatch-1790000000", RecordingProtocol.externalId(f))
+        val b = RecordingBuilder("E", Sport.RUN, false, 0L, eventId = 42L)
+        assertEquals(42L, b.build(1.0, 0.0).eventId)
+    }
+
+    @Test fun fileNameWithoutEventIdStillWorks() {
+        assertEquals(null, RecordingProtocol.eventId(RecordingProtocol.fileName(1_790_000_000_000L, "Tempo")))
+        assertEquals(null, RecordingProtocol.eventId("1790000000_VGVtcG8.fit"))
+        assertEquals("Tempo", RecordingProtocol.displayName("1790000000_VGVtcG8.fit"))
+    }
+
     @Test fun headerAndCrcAreValid() {
         val fit = FitWriter.encode(recording())
         val bb = ByteBuffer.wrap(fit).order(ByteOrder.LITTLE_ENDIAN)

@@ -61,12 +61,13 @@ class IntervalsApi(
      * Uploads a FIT file as a new activity. Returns normally for 200/201 (200 = duplicate, already
      * there); throws [IOException] otherwise. The message never includes the API key.
      */
-    suspend fun uploadActivity(settings: Settings, fit: ByteArray, fileName: String, name: String, externalId: String) =
+    suspend fun uploadActivity(settings: Settings, fit: ByteArray, fileName: String, name: String, externalId: String, pairedEventId: Long? = null) =
         withContext(Dispatchers.IO) {
             val url = "$baseUrl/api/v1/athlete/${settings.athleteId}/activities".toHttpUrl()
                 .newBuilder()
                 .addQueryParameter("name", name)
                 .addQueryParameter("external_id", externalId)
+                .apply { if (pairedEventId != null) addQueryParameter("paired_event_id", pairedEventId.toString()) }
                 .build()
             val body = MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("file", fileName, fit.toRequestBody("application/octet-stream".toMediaType()))
