@@ -6,3 +6,6 @@ local.properties
 .DS_Store
 captures/
 .kotlin/
+
+# Paparazzi snapshots are recorded by CI, not kept in the repo
+wear/src/test/snapshots/

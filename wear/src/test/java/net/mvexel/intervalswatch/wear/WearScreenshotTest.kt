@@ -11,15 +11,17 @@ import net.mvexel.intervalswatch.shared.Samples
 import net.mvexel.intervalswatch.shared.SaveStatus
 import net.mvexel.intervalswatch.shared.StepProgress
 import net.mvexel.intervalswatch.shared.Workout
+import net.mvexel.intervalswatch.shared.WorkoutStep
+import net.mvexel.intervalswatch.shared.StepKind
 import org.junit.Rule
 import org.junit.Test
 
 /** Run `./gradlew :wear:recordPaparazziDebug`; PNGs land in wear/src/test/snapshots/images. */
-class WearScreenshotTest {
+abstract class WearScreenshotBase(device: DeviceConfig) {
 
     @get:Rule
     val paparazzi = Paparazzi(
-        deviceConfig = DeviceConfig.WEAR_OS_SMALL_ROUND,
+        deviceConfig = device,
         theme = "android:Theme.DeviceDefault",
         maxPercentDifference = 0.1,
     )
@@ -99,6 +101,27 @@ class WearScreenshotTest {
         AmbientWorkout(session(Samples.ride, 3, 312.0, power = 307.0, hr = 162.0, speed = 9.1))
     }
 
+    private val openRide get() = Samples.ride.copy(steps = listOf(WorkoutStep("Free ride", StepKind.ACTIVE)))
+    private val lapRun get() = Samples.run.copy(steps = listOf(
+        WorkoutStep("Warm-up", StepKind.WARMUP), Samples.run.steps[1], Samples.run.steps[0],
+    ))
+
+    @Test fun openRide() = snap {
+        ActiveWorkout(session(openRide, 0, null, power = 150.0, hr = 128.0, speed = 8.0))
+    }
+
+    @Test fun openRideAmbient() = snap {
+        AmbientWorkout(session(openRide, 0, null, power = 150.0, hr = 128.0, speed = 8.0))
+    }
+
+    @Test fun lapStep() = snap {
+        ActiveWorkout(session(lapRun, 0, null, hr = 128.0, speed = 3.0))
+    }
+
+    @Test fun pausedOpenRide() = snap {
+        ActiveWorkout(session(openRide, 0, null, hr = 128.0, paused = true))
+    }
+
     @Test fun paused() = snap {
         ActiveWorkout(session(Samples.ride, 3, 312.0, power = 0.0, hr = 140.0, paused = true))
     }
@@ -134,3 +157,8 @@ class WearScreenshotTest {
         ) {}
     }
 }
+
+class WearScreenshotTest : WearScreenshotBase(DeviceConfig.WEAR_OS_SMALL_ROUND)
+
+/** Same screens on a 454 px round watch (about 227 dp, Pixel Watch 45 mm class); Paparazzi has no built-in large round. */
+class WearScreenshotLargeTest : WearScreenshotBase(DeviceConfig.WEAR_OS_SMALL_ROUND.copy(screenWidth = 454, screenHeight = 454))
