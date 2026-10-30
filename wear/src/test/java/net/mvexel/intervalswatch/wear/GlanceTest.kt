@@ -1,6 +1,7 @@
 package net.mvexel.intervalswatch.wear
 
 import net.mvexel.intervalswatch.shared.Metric
+import net.mvexel.intervalswatch.shared.Samples
 import net.mvexel.intervalswatch.shared.Sport
 import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.StepProgress
@@ -108,4 +109,23 @@ class GlanceTest {
         assertEquals("151", fieldValue(s, net.mvexel.intervalswatch.shared.Field.AVG_HR, "7:00"))
         assertNull(fieldValue(s, net.mvexel.intervalswatch.shared.Field.AVG_POWER, "7:00"))
     }
+
+    @Test fun rideSummaryShowsPowerAndSpeedNotPace() {
+        val ride = Samples.workouts.first { it.sport == Sport.RIDE }
+        val s = sessionOf(ride, distanceM = 18000.0, activeSec = 3600.0, avgHr = 140.0, avgPower = 201.6)
+        assertEquals("140" to "202 W · 18.0 km/h", summaryDetail(s))
+    }
+
+    @Test fun runSummaryShowsPace() {
+        val run = Samples.workouts.first { it.sport == Sport.RUN }
+        val s = sessionOf(run, distanceM = 5000.0, activeSec = 1500.0, avgHr = null, avgPower = null)
+        assertEquals(null to "5:00 /km", summaryDetail(s))
+    }
+
+    private fun sessionOf(w: Workout, distanceM: Double, activeSec: Double, avgHr: Double?, avgPower: Double?) = Session(
+        workout = w, stepIndex = 0, step = null, next = null, progress = StepProgress(0.0, null, 0.0, null, 0.0),
+        activeSec = activeSec, distanceM = distanceM, heartRate = null, speed = null, power = null, cadence = null,
+        powerStatus = null, gpsReady = true, paused = false, finished = true, ended = true,
+        avgHeartRate = avgHr, avgPower = avgPower,
+    )
 }

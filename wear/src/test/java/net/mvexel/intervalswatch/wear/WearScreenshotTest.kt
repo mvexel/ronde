@@ -178,6 +178,8 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
         SlotMapScreen(Sport.RIDE, ScreenSettings().ride, { _, _ -> }, initialSelected = Slot.FLANK_RIGHT)
     }
 
+    @Test fun detailReady() = snap { DetailBezel(Samples.workouts[0], selected = 1, ready = Readiness(gps = true, hr = false), onStart = {}, onSteps = {}) }
+
     @Test fun detail() = snap { DetailBezel(Samples.workouts[0], selected = 1, onStart = {}, onSteps = {}) }
 
     @Test fun holdToEnd() = snap { HoldRing(0.4f) }

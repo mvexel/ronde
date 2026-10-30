@@ -239,7 +239,7 @@ class ExerciseService : LifecycleService() {
         recordStartElapsed = SystemClock.elapsedRealtime()
         recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, recordStartMs, workout.id.takeUnless { workout.isOpen })
         cadence = null
-        hrMean.clear(); powerMean.clear()
+        hrMean.clear(); powerMean.clear(); rangeSamples.clear()
         pauseSpans.clear(); pausedSince = null; distanceAnchor = 0.0
         listOf(hrSeries, speedSeries, distanceSeries, powerSeries, cadenceSeries, locationSeries).forEach { it.clear() }
         publish()
