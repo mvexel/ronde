@@ -123,7 +123,10 @@ internal fun MainScreen(st: UiState, onSync: () -> Unit, onEdit: () -> Unit, onS
             Modifier.padding(pad).padding(16.dp).fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("intervals.icu → Watch", style = MaterialTheme.typography.headlineSmall)
+            Column {
+                Text("Ronde", style = MaterialTheme.typography.headlineSmall)
+                Text("for intervals.icu", style = MaterialTheme.typography.bodySmall)
+            }
             if (st.editing) {
                 SettingsForm(st.settings, onSave = onSave)
             } else {
