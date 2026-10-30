@@ -478,7 +478,7 @@ private val AmbientGray = Rb.ink2
 @Composable
 internal fun AmbientIdle() {
     Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
-        Text("Intervals", color = Rb.ink3, fontSize = 16.sp)
+        Text("Ronde", color = Rb.ink3, fontSize = 16.sp)
     }
 }
 
