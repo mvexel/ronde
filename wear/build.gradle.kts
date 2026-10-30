@@ -44,6 +44,8 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.wear.compose.material)
     implementation(libs.wear.compose.foundation)
+    implementation(libs.wear)
+    implementation(libs.wear.ongoing)
     implementation(libs.health.services)
     implementation(libs.play.services.wearable)
     implementation(libs.kotlinx.coroutines.android)
