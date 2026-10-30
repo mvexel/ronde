@@ -28,6 +28,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import net.mvexel.intervalswatch.shared.Samples
 import androidx.compose.material3.MaterialTheme
 import net.mvexel.intervalswatch.mobile.ui.RunbumTheme
 import androidx.compose.material3.OutlinedTextField
@@ -72,6 +77,8 @@ data class UiState(
     val recordings: List<RecordingItem> = emptyList(),
     /** The "Watch screens & alerts" screen is open. */
     val watchScreens: Boolean = false,
+    /** Local time of the last successful sync, e.g. "07:12". */
+    val lastSynced: String? = null,
 ) {
     // Settings.toString already hides the token; keep the whole state out of logs anyway.
     override fun toString() = "UiState(settings=$settings, workouts=${workouts.size}, busy=$busy, editing=$editing, authExpired=$authExpired)"
@@ -94,6 +101,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private val library = RecordingLibrary.of(app)
+
+    init {
+        // An upload that finishes while the app is open updates its row.
+        viewModelScope.launch { RecordingLibrary.changes.collect { refreshRecordings() } }
+    }
+
+    fun retryRecording(item: RecordingItem) {
+        viewModelScope.launch { withContext(Dispatchers.IO) { UploadWorker.retry(getApplication(), item.fileName) } }
+    }
 
     fun refreshRecordings() {
         viewModelScope.launch {
@@ -170,7 +186,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             runCatching { WatchSync.syncNow(getApplication(), s) }
                 .onSuccess { ws ->
                     _state.update {
-                        it.copy(busy = false, workouts = ws, status = "Sent ${ws.size} workout(s) to the watch")
+                        it.copy(busy = false, workouts = ws, status = "Sent ${ws.size} workout(s) to the watch", lastSynced = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")))
                     }
                 }
                 .onFailure { e ->
@@ -197,11 +213,21 @@ private class CreateExport : ActivityResultContracts.CreateDocument("*/*") {
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
     private val createExport = CreateExport()
-    private var pendingSave: Pair<String, ExportFormat>? = null
+    private var pendingSave: Pair<String, ExportFormat>? = null // restored in onCreate: the picker can outlive the activity
     private val saveLauncher = registerForActivityResult(createExport) { uri -> uri?.let(::writeExport) }
 
+    private val saved = Bundle()
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putAll(saved)
+    }
+
     private fun writeExport(uri: Uri) {
-        val (fileName, format) = pendingSave ?: return
+        val (fileName, format) = pendingSave ?: run {
+            Toast.makeText(this, "Could not save", Toast.LENGTH_SHORT).show()
+            return
+        }
         lifecycleScope.launch {
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
@@ -215,6 +241,7 @@ class MainActivity : ComponentActivity() {
 
     private fun save(item: RecordingItem, format: ExportFormat) {
         pendingSave = item.fileName to format
+        saved.putString(KEY_SAVE_NAME, item.fileName); saved.putString(KEY_SAVE_FORMAT, format.name)
         createExport.mime = format.mime
         saveLauncher.launch(RecordingLibrary.of(this).exportName(item.fileName, format))
     }
@@ -224,6 +251,11 @@ class MainActivity : ComponentActivity() {
             val intent = withContext(Dispatchers.IO) { runCatching { RecordingLibrary.shareIntent(this@MainActivity, item.fileName, format) }.getOrNull() }
             if (intent != null) startActivity(intent) else Toast.makeText(this@MainActivity, "Could not share", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    companion object {
+        private const val KEY_SAVE_NAME = "save_name"
+        private const val KEY_SAVE_FORMAT = "save_format"
     }
 
     override fun onResume() {
@@ -246,6 +278,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        savedInstanceState?.let { b ->
+            val n = b.getString(KEY_SAVE_NAME); val f = b.getString(KEY_SAVE_FORMAT)?.let { runCatching { ExportFormat.valueOf(it) }.getOrNull() }
+            if (n != null && f != null) { pendingSave = n to f; createExport.mime = f.mime; saved.putAll(b) }
+        }
         // After process death the redirect starts a fresh instance; the pending login is read from storage.
         if (savedInstanceState == null) vm.handleRedirect(intent?.dataString)
         setContent {
@@ -258,7 +294,7 @@ class MainActivity : ComponentActivity() {
                     onTestBuzz = { lifecycleScope.launch { WatchSync.testBuzz(this@MainActivity, screens.buzzStrength) } },
                     onWatchScreens = vm::openWatchScreens,
                     onSync = vm::sync, onEdit = vm::edit, onSave = vm::save, onLogout = vm::logout, onClose = vm::closeEditor,
-                    onShareRecording = ::share, onSaveRecording = ::save,
+                    onShareRecording = ::share, onSaveRecording = ::save, onRetryRecording = vm::retryRecording,
                     onLogin = {
                         lifecycleScope.launch {
                             if (!launchLoginTab(this@MainActivity, vm.beginLogin())) vm.showStatus("No browser found to log in with")
@@ -291,44 +327,119 @@ internal fun MainScreen(
     onClose: () -> Unit = {},
     onShareRecording: (RecordingItem, ExportFormat) -> Unit = { _, _ -> },
     onSaveRecording: (RecordingItem, ExportFormat) -> Unit = { _, _ -> },
+    onRetryRecording: (RecordingItem) -> Unit = {},
 ) {
-    Scaffold { pad ->
+    Scaffold(containerColor = MaterialTheme.colorScheme.background) { pad ->
         Column(
-            Modifier.padding(pad).padding(16.dp).fillMaxSize(),
+            Modifier.padding(pad).padding(horizontal = 16.dp).fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column {
-                Text("Ronde", style = MaterialTheme.typography.headlineSmall)
-                Text("for intervals.icu", style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                WorkoutRingDisc(st.workouts.firstOrNull()?.steps ?: Samples.workouts.first().steps, size = 40.dp)
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("Ronde", style = MaterialTheme.typography.headlineSmall)
+                    Text("for intervals.icu", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             if (!st.settings.configured) {
-                LoginScreen(st, onLogin = onLogin, onSave = onSave, onAdvanced = onEdit)
+                // Kept recordings stay reachable after a logout (T10 L2).
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item { LoginScreen(st, onLogin = onLogin, onSave = onSave, onAdvanced = onEdit) }
+                    recordingsSection(st, onShareRecording, onSaveRecording, onRetryRecording)
+                }
             } else if (st.watchScreens) {
                 WatchScreensScreen(screens, st.watches.isNotEmpty(), onEditScreens, onTestBuzz, onBack = { onWatchScreens(false) })
             } else if (st.editing) {
                 SettingsForm(st.settings, onSave = onSave, onCancel = onClose, busy = st.busy)
             } else {
-                AccountCard(st, onLogin = onLogin, onLogout = onLogout)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Button(onClick = onSync, enabled = !st.busy) { Text("Sync now") }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onEdit) { Text("Settings") }
-                    TextButton(onClick = { onWatchScreens(true) }) { Text("Watch screens & alerts") }
-                }
-                Text(
-                    if (st.watches.isEmpty()) "No watch connected (it will sync when it reconnects)"
-                    else "Watch: ${st.watches.joinToString()}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                st.status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(st.workouts, key = { it.id }) { WorkoutCard(it) }
-                    if (st.recordings.isNotEmpty()) {
-                        item { Text("Recordings", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
-                        items(st.recordings, key = { "rec-" + it.fileName }) { RecordingCard(it, onShareRecording, onSaveRecording) }
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item { WatchCard(st, onSync) }
+                    item { Overline("Next up") }
+                    item {
+                        if (st.workouts.isEmpty()) {
+                            Text("No planned workouts yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                                st.workouts.forEachIndexed { i, w ->
+                                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                                    WorkoutRow(w)
+                                }
+                            }
+                        }
                     }
+                    recordingsSection(st, onShareRecording, onSaveRecording, onRetryRecording)
+                    item { NavRow("Watch screens & alerts") { onWatchScreens(true) } }
+                    item { NavRow("Sync settings", onEdit) }
+                    item { AccountCard(st, onLogin = onLogin, onLogout = onLogout) }
                 }
             }
+        }
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.recordingsSection(
+    st: UiState,
+    onShare: (RecordingItem, ExportFormat) -> Unit,
+    onSave: (RecordingItem, ExportFormat) -> Unit,
+    onRetry: (RecordingItem) -> Unit,
+) {
+    if (st.recordings.isEmpty()) return
+    item { Overline("Recent uploads") }
+    item {
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            st.recordings.forEachIndexed { i, r ->
+                if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                RecordingRow(r, onShare, onSave, onRetry)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Overline(text: String) =
+    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+
+/** "On your watch · Pixel Watch 4 · synced 07:12" with Sync as an ink pill (ux F2). */
+@Composable
+private fun WatchCard(st: UiState, onSync: () -> Unit) {
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("On your watch", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    listOfNotNull(
+                        st.watches.joinToString().ifBlank { "No watch connected" },
+                        st.lastSynced?.let { "synced $it" },
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                st.status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            Button(onClick = onSync, enabled = !st.busy, shape = CircleShape) { Text("Sync") }
+        }
+    }
+}
+
+@Composable
+private fun WorkoutRow(w: Workout) {
+    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        WorkoutRingDisc(w.steps)
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(w.name, style = MaterialTheme.typography.titleMedium)
+            Text(workoutMeta(w), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            planLine(w).takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+}
+
+@Composable
+private fun NavRow(label: String, onClick: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text("›", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -337,7 +448,7 @@ internal fun MainScreen(
 @Composable
 private fun LoginScreen(st: UiState, onLogin: () -> Unit, onSave: (Settings) -> Unit, onAdvanced: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = onLogin, enabled = !st.busy, modifier = Modifier.fillMaxWidth()) { Text("Log in with intervals.icu") }
+        Button(onClick = onLogin, enabled = !st.busy, shape = CircleShape, modifier = Modifier.fillMaxWidth()) { Text("Log in with intervals.icu") }
         if (!st.editing) {
             TextButton(onClick = onAdvanced) { Text("Use API key instead") }
         } else {
@@ -428,43 +539,37 @@ private fun SettingsForm(initial: Settings, onSave: (Settings) -> Unit, onCancel
 }
 
 @Composable
-private fun WorkoutCard(w: Workout) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Text(w.name, style = MaterialTheme.typography.titleMedium)
-            val meta = buildList {
-                add(w.startLocal.replace('T', ' ').take(16))
-                add(w.sport.name.lowercase())
-                w.totalDurationSec?.let { add(Format.duration(it.toDouble())) }
-                add(if (w.steps.size == 1) "1 step" else "${w.steps.size} steps")
+internal fun RecordingRow(
+    r: RecordingItem,
+    onShare: (RecordingItem, ExportFormat) -> Unit,
+    onSave: (RecordingItem, ExportFormat) -> Unit,
+    onRetry: (RecordingItem) -> Unit = {},
+) {
+    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusIcon(r.state)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(r.title, style = MaterialTheme.typography.titleMedium)
+                val when_ = r.startEpochSec?.let {
+                    java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().toString().replace('T', ' ').take(16)
+                }
+                Text(listOfNotNull(if (isOpenRecording(r)) "Open (not planned)" else null, when_, "${(r.sizeBytes + 512) / 1024} kB").joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    when (r.state) {
+                        UploadState.UPLOADED -> "Saved to intervals.icu"
+                        UploadState.PENDING -> "Waiting to upload"
+                        UploadState.FAILED -> "Not uploaded" + r.reason.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (r.state == UploadState.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                )
             }
-            Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
         }
-    }
-}
-
-@Composable
-internal fun RecordingCard(r: RecordingItem, onShare: (RecordingItem, ExportFormat) -> Unit, onSave: (RecordingItem, ExportFormat) -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Text(r.title, style = MaterialTheme.typography.titleMedium)
-            val when_ = r.startEpochSec?.let {
-                java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().toString().replace('T', ' ').take(16)
-            }
-            Text(listOfNotNull(when_, "${(r.sizeBytes + 512) / 1024} kB").joinToString(" · "), style = MaterialTheme.typography.bodySmall)
-            Text(
-                when (r.state) {
-                    UploadState.UPLOADED -> "✓ Uploaded"
-                    UploadState.PENDING -> "⟳ Waiting to upload"
-                    UploadState.FAILED -> "! Not uploaded" + r.reason.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = if (r.state == UploadState.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-            )
-            Row {
-                FormatMenu("Share") { onShare(r, it) }
-                FormatMenu("Save") { onSave(r, it) }
-            }
+        Row {
+            if (r.state == UploadState.FAILED) TextButton(onClick = { onRetry(r) }) { Text("Retry") }
+            FormatMenu("Share") { onShare(r, it) }
+            FormatMenu("Save") { onSave(r, it) }
         }
     }
 }

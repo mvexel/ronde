@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.tasks.await
 import net.mvexel.intervalswatch.shared.RecordingProtocol
 import java.io.File
@@ -64,9 +65,9 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         if (failure?.authRejected == true) WatchSync.pushLoggedIn(applicationContext, false)
         notifyWatch(name, failure)
         return when {
-            failure == null -> { library.markUploaded(name); library.prune(); Result.success() }
+            failure == null -> { library.markUploaded(name); library.prune(); RecordingLibrary.changes.update { it + 1 }; Result.success() }
             failure.retryable -> Result.retry()
-            else -> { library.markFailed(name, failure.reason); library.prune(); Result.failure() } // kept on the phone; the watch keeps its own copy too
+            else -> { library.markFailed(name, failure.reason); library.prune(); RecordingLibrary.changes.update { it + 1 }; Result.failure() } // kept on the phone; the watch keeps its own copy too
         }
     }
 
@@ -94,6 +95,18 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
         /** Replacing cancels the work, so only do it when no upload of this file is running right now. */
         fun shouldRetryNow(states: List<WorkInfo.State>) = states.none { it == WorkInfo.State.RUNNING }
+
+        /** Retry button: a failed recording goes back to pending and uploads now. */
+        fun retry(ctx: Context, name: String) {
+            RecordingLibrary.of(ctx).clearState(name)
+            val req = OneTimeWorkRequestBuilder<UploadWorker>()
+                .setInputData(Data.Builder().putString(KEY_NAME, name).build())
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
+                .build()
+            WorkManager.getInstance(ctx).enqueueUniqueWork("upload-$name", ExistingWorkPolicy.REPLACE, req)
+            RecordingLibrary.changes.update { it + 1 }
+        }
 
         /** After a login or key save: skip the backoff wait for every PENDING recording, leaving running uploads alone. */
         fun retryPending(ctx: Context) {
