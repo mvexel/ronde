@@ -67,6 +67,7 @@ data class Session(
     val heartRate: Double?,
     val speed: Double?,
     val power: Double?,
+    val cadence: Double?,
     val powerStatus: PowerMeter.Status?,
     val gpsReady: Boolean,
     val paused: Boolean,
@@ -78,7 +79,7 @@ data class Session(
         Metric.POWER -> power
         Metric.HEART_RATE -> heartRate
         Metric.PACE -> speed
-        Metric.CADENCE -> null
+        Metric.CADENCE -> cadence
     }
 }
 
@@ -134,6 +135,7 @@ class ExerciseService : LifecycleService() {
     private var hasDistanceTotal = false
     private var distanceAnchor = 0.0
     private var heartRate: Double? = null
+    private var cadence: Double? = null
     private var speed: Double? = null
     private var gpsReady = false
     private var ended = false
@@ -147,6 +149,7 @@ class ExerciseService : LifecycleService() {
     private val speedSeries = TimedValues<Double>()
     private val distanceSeries = TimedValues<Double>()
     private val powerSeries = TimedValues<Double>()
+    private val cadenceSeries = TimedValues<Double>()
     private val locationSeries = TimedValues<LocationData>()
     private var ongoing: OngoingActivity? = null
     private var ongoingStep = -2
@@ -207,8 +210,9 @@ class ExerciseService : LifecycleService() {
         recordStartMs = System.currentTimeMillis()
         recordStartElapsed = SystemClock.elapsedRealtime()
         recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, recordStartMs)
+        cadence = null
         pauseSpans.clear(); pausedSince = null; distanceAnchor = 0.0
-        listOf(hrSeries, speedSeries, distanceSeries, powerSeries, locationSeries).forEach { it.clear() }
+        listOf(hrSeries, speedSeries, distanceSeries, powerSeries, cadenceSeries, locationSeries).forEach { it.clear() }
         publish()
 
         try {
@@ -216,7 +220,9 @@ class ExerciseService : LifecycleService() {
             val useGps = !workout.indoor && hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
             // LOCATION may only be requested together with setIsGpsEnabled(true).
             val wanted = setOf(DataType.HEART_RATE_BPM, DataType.SPEED, DataType.DISTANCE_TOTAL, DataType.DISTANCE) +
-                if (useGps) setOf(DataType.LOCATION) else emptySet()
+                (if (useGps) setOf(DataType.LOCATION) else emptySet()) +
+                // Step cadence is for running; a ride has no step rate.
+                (if (workout.sport == Sport.RUN) setOf(DataType.STEPS_PER_MINUTE) else emptySet())
             val dataTypes = wanted.filter { it in caps.supportedDataTypes }.toSet()
             val config = ExerciseConfig.builder(type)
                 .setDataTypes(dataTypes)
@@ -256,6 +262,10 @@ class ExerciseService : LifecycleService() {
             val times = sortedSetOf<Double>()
             m.getData(DataType.HEART_RATE_BPM).forEach { p ->
                 if (p.value > 0) { hrSeries.add(wallOf(p.timeDurationFromBoot), p.value); heartRate = p.value; times += wallOf(p.timeDurationFromBoot) }
+            }
+            m.getData(DataType.STEPS_PER_MINUTE).forEach { p ->
+                // 0 spm is a standing runner: a real reading, and it keeps a stale value from lingering.
+                cadenceSeries.add(wallOf(p.timeDurationFromBoot), p.value.toDouble()); cadence = p.value.toDouble(); times += wallOf(p.timeDurationFromBoot)
             }
             m.getData(DataType.SPEED).forEach { p ->
                 // Light smoothing; GPS speed is jumpy.
@@ -417,6 +427,7 @@ class ExerciseService : LifecycleService() {
                 speed = speedSeries.at(wall, STALE_SENSOR_SEC),
                 hr = hrSeries.at(wall, STALE_SENSOR_SEC)?.toInt(),
                 power = powerSeries.at(wall, STALE_SENSOR_SEC)?.toInt(),
+                cadence = cadenceSeries.at(wall, STALE_SENSOR_SEC)?.toInt(),
             ),
         )
     }
@@ -494,6 +505,7 @@ class ExerciseService : LifecycleService() {
             heartRate = heartRate,
             speed = speed,
             power = powerMeter?.watts?.value,
+            cadence = cadence,
             powerStatus = powerMeter?.status?.value,
             gpsReady = gpsReady,
             paused = state?.isPaused == true,

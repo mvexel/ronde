@@ -241,7 +241,7 @@ private fun StepRow(w: Workout, s: WorkoutStep) {
         s.distanceM != null -> Format.distance(s.distanceM!!, w.paceUnit)
         else -> "lap"
     }
-    val target = s.primaryTarget?.let { Format.target(it, 0.0, w.paceUnit) } ?: ""
+    val target = s.primaryTarget?.let { Format.target(it, 0.0, w.paceUnit, w.sport) } ?: ""
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)) {
         Text(
             listOfNotNull(s.repeat, s.label).joinToString(" "),
@@ -298,7 +298,7 @@ internal fun ActiveWorkout(s: Session) {
                         if (live != null) {
                             Text(Format.value(t.metric, live, w.paceUnit), fontSize = 28.sp, color = color, fontWeight = FontWeight.Bold)
                             Column {
-                                Text(Format.unitLabel(t.metric, w.paceUnit), fontSize = 12.sp, color = TargetColor)
+                                Text(Format.unitLabel(t.metric, w.paceUnit, w.sport), fontSize = 12.sp, color = TargetColor)
                                 cue(t.metric, cmp)?.let { Text(it, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold) }
                             }
                         } else {
@@ -306,7 +306,7 @@ internal fun ActiveWorkout(s: Session) {
                         }
                     }
                     if (nextNear && s.next != null) NextBig(s.next!!, w)
-                    else Text(Format.target(t, p.fraction, w.paceUnit), fontSize = 18.sp, color = TargetColor, maxLines = 1)
+                    else Text(Format.target(t, p.fraction, w.paceUnit, w.sport), fontSize = 18.sp, color = TargetColor, maxLines = 1)
                 }
                 if (nextNear && step.primaryTarget == null) s.next?.let { n -> NextBig(n, w) }
                 Text(secondaryLine(s), fontSize = 12.sp, color = Color.LightGray)
@@ -369,7 +369,7 @@ internal fun powerStatusText(status: PowerMeter.Status?): String = when (status)
 @Composable
 private fun NextBig(n: WorkoutStep, w: Workout) {
     Text("Next: ${n.label}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = kindColor(n.kind), maxLines = 1, overflow = TextOverflow.Ellipsis)
-    n.primaryTarget?.let { Text(Format.target(it, 0.0, w.paceUnit), fontSize = 18.sp, color = TargetColor, maxLines = 1) }
+    n.primaryTarget?.let { Text(Format.target(it, 0.0, w.paceUnit, w.sport), fontSize = 18.sp, color = TargetColor, maxLines = 1) }
 }
 
 /** End button that must be held for a second; a ring fills while held, and letting go cancels. */
@@ -413,6 +413,7 @@ private fun secondaryLine(s: Session): String {
             Format.pace(s.speed, s.workout.paceUnit)
         }
     }
+    if (primary != Metric.CADENCE && s.cadence != null) parts += "${s.cadence.toInt()} spm"
     if (primary != Metric.POWER && s.power != null) parts += "${s.power.toInt()} W"
     if (s.workout.usesPower && s.power == null) {
         parts += powerStatusText(s.powerStatus)
@@ -450,7 +451,7 @@ internal fun AmbientWorkout(s: Session, shift: Int = 0) {
                 // The target is the biggest thing; time left is whole minutes because the screen
                 // is only redrawn about once a minute (a frozen m:ss would look like a hang).
                 step.primaryTarget?.let {
-                    Text(Format.target(it, p.fraction, w.paceUnit), color = AmbientGray, fontSize = 30.sp, textAlign = TextAlign.Center)
+                    Text(Format.target(it, p.fraction, w.paceUnit, w.sport), color = AmbientGray, fontSize = 30.sp, textAlign = TextAlign.Center)
                 }
                 val left = when {
                     p.remainingSec != null -> "${kotlin.math.ceil(p.remainingSec!! / 60).toInt()} min left"

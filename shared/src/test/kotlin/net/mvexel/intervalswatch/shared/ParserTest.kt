@@ -213,4 +213,11 @@ class ParserTest {
         val b = Sync.decode(Sync.encode(WorkoutBundle(1L, ws)))
         assertEquals(ws, b.workouts)
     }
+
+    @Test fun cadenceTargetRangeComparesStepsPerMinute() {
+        val t = Target(Metric.CADENCE, 170.0, 180.0)
+        assertEquals(-1, t.compare(160.0, 0.0))
+        assertEquals(0, t.compare(175.0, 0.0))
+        assertEquals(1, t.compare(190.0, 0.0))
+    }
 }

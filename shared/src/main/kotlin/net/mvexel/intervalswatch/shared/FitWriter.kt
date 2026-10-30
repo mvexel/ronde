@@ -11,6 +11,11 @@ import kotlin.math.roundToLong
  * public FIT file structure so no Garmin SDK licence is involved. Little-endian, CRC-16 per spec.
  */
 object FitWriter {
+
+    /** FIT run cadence is strides/min (one foot), the watch reports steps/min; rides are rpm as is. */
+    internal fun fitCadence(rec: Recording, c: Int): Long =
+        if (rec.sport == Sport.RUN) (c / 2.0).roundToLong() else c.toLong()
+
     private const val FIT_EPOCH_OFFSET = 631_065_600L // 1989-12-31 minus unix epoch, seconds
     private const val SEMICIRCLE = 2_147_483_648.0 / 180.0
 
@@ -101,7 +106,7 @@ object FitWriter {
                 s.lon?.let { (it * SEMICIRCLE).roundToLong() },
                 s.altM?.let { ((it + 500) * 5).roundToLong().coerceIn(0, 0xFFFE) },
                 s.hr?.toLong()?.coerceIn(0, 254),
-                s.cadence?.toLong()?.coerceIn(0, 254),
+                s.cadence?.let { fitCadence(rec, it) }?.coerceIn(0, 254),
                 cm(s.distanceM),
                 s.speed?.let { (it * 1000).roundToLong().coerceIn(0, 0xFFFE) },
                 s.power?.toLong()?.coerceIn(0, 0xFFFE),
@@ -125,7 +130,7 @@ object FitWriter {
         fun avg(v: List<Int>) = if (v.isEmpty()) null else v.average().roundToInt().toLong()
         val hr = rec.samples.mapNotNull { it.hr }
         val pw = rec.samples.mapNotNull { it.power }
-        val cad = rec.samples.mapNotNull { it.cadence }
+        val cad = rec.samples.mapNotNull { it.cadence?.let { c -> fitCadence(rec, c).toInt() } }
         define(4, 18, SESSION)
         data(
             4, SESSION, endFit, startFit, ms(rec.elapsedSec), ms(rec.timerSec), cm(rec.totalM),
