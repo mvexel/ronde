@@ -55,7 +55,8 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val file = File(recordingsDir(applicationContext), name)
         if (!file.exists()) return Result.success()
         val library = RecordingLibrary.of(applicationContext)
-        if (library.state(name) == UploadState.UPLOADED) return Result.success()
+        // A resend of a file already uploaded: the watch missed our answer, so answer again.
+        if (library.state(name) == UploadState.UPLOADED) { notifyWatch(name, null); return Result.success() }
         val settings = SettingsStore(applicationContext).current()
         val failure = uploadRecordingFile(IntervalsApi(), settings, file)
 
