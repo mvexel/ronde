@@ -9,7 +9,7 @@ project has two parts:
   and sends them to the watch through the Wearable Data Layer. It re-syncs in the background every 4 hours.
 - **wear/**: watch app. Lists the synced workouts and plays them step by step: a countdown per step, the
   target range and live value (blue = too low, green = in range, red = too high), and haptics on step change,
-  3 seconds before a timed step ends, and when you stay out of range for 10 seconds or more. Heart rate,
+  3 seconds before a step ends, and when you stay out of range for 10 seconds or more (see Haptics). Heart rate,
   speed/pace, distance and GPS come from Health Services. Power comes from a BLE Cycling Power sensor
   (bike power meter or Stryd).
 - **shared/**: plain Kotlin. Holds the intervals.icu `workout_doc` parser, which flattens repeats and resolves
@@ -73,3 +73,21 @@ and pushes them to the [`screenshots`](../../tree/screenshots) branch on every p
 | ![](../screenshots/watch/list.png) | ![](../screenshots/watch/rideInRange.png) | ![](../screenshots/watch/rideTooLow.png) |
 | ![](../screenshots/watch/runTooFast.png) | ![](../screenshots/watch/runDistanceStep.png) | ![](../screenshots/watch/paused.png) |
 | ![](../screenshots/phone/synced.png) | ![](../screenshots/phone/setup.png) | ![](../screenshots/watch/summary.png) |
+
+## Haptics
+
+Long pulses mean a step change; short pulses mean "look at your target".
+
+| Pattern | Meaning |
+|---|---|
+| 3 strong short (150 ms) | Into a work step: go |
+| 1 long (600 ms) | Into recovery, warm-up or cool-down: ease off |
+| 3 pulses of 130 ms, 1 s apart | Countdown, 3 s before a timed step ends; for a distance step, about 3 s out at current speed |
+| 1 pulse (130 ms) | Distance step: 100 m to go (steps over 200 m) |
+| 2 quick | Too low / too slow |
+| 3 quick | Too high / too fast |
+| 2 medium (250 ms) | Power meter or GPS lost |
+| 1 short (120 ms) | Power meter or GPS back |
+| 3 long (300 ms) | Workout done |
+
+The values are in `wear/.../Haptics.kt`.
