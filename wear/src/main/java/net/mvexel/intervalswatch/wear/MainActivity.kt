@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycle.addObserver(AmbientLifecycleObserver(this, ambientCallback))
-        setContent { RunbumTheme { App(repo, ambient.value, ambientTick.value, burnIn.value) } }
+        setContent { RunbumTheme { App(repo, screenSettings, ambient.value, ambientTick.value, burnIn.value) } }
     }
 
     override fun onStart() {
@@ -127,9 +127,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, burnIn: Boolean) {
+private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, ambient: Boolean, ambientTick: Int, burnIn: Boolean) {
     val bundle by repo.bundle.collectAsStateWithLifecycle()
     val phoneLoggedIn by repo.phoneLoggedIn.collectAsStateWithLifecycle()
+    val settings by screenSettings.settings.collectAsStateWithLifecycle()
     val session by ExerciseService.session.collectAsStateWithLifecycle()
     val save by RecordingStore.status.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -157,8 +158,7 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, bur
             }
 
             s != null -> {
-                val (paceView, togglePace) = rememberPaceView(LocalContext.current, s.workout.sport)
-                ActiveWorkout(s, paceView, togglePace)
+                ActiveWorkout(s, settings)
             }
             selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
             selected != null && selected!!.isOpen -> OpenStart(selected!!, onBack = { selected = null })
@@ -312,113 +312,6 @@ private fun StepRow(w: Workout, s: WorkoutStep) {
     }
 }
 
-@Composable
-internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogglePace: () -> Unit = {}) {
-    val ctx = LocalContext.current
-    val w = s.workout
-    val step = s.step
-    val p = s.progress
-
-    Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
-        if (step != null) {
-            ProgressArc(p.fraction.toFloat(), if (s.paused) Rb.ink3 else kindColor(step.kind), dashed = s.paused)
-        }
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(0.dp),
-            modifier = Modifier.padding(horizontal = 26.dp, vertical = 4.dp),
-        ) {
-            if (step == null) {
-                Text("Workout done", style = MaterialTheme.typography.title2)
-                Text(Format.duration(s.activeSec))
-            } else {
-                if (s.paused) {
-                    // Paused is a treatment, not a hue: inverted pill (black on ink).
-                    Text(
-                        "PAUSED", color = Rb.ground, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                        modifier = Modifier.background(Rb.ink, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 1.dp),
-                    )
-                } else {
-                    Text(
-                        listOfNotNull(step.repeat, step.label).joinToString("  "),
-                        color = kindColor(step.kind), fontSize = 13.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                // Big number: what's left of this step.
-                val left = when {
-                    p.remainingSec != null -> Format.duration(p.remainingSec!!)
-                    p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit)
-                    else -> Format.duration(p.elapsedSec)
-                }
-                Column(Modifier.alpha(if (s.paused) 0.5f else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(left, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                val nextNear = !s.paused && isNearEnd(p)
-                val paceOther = step.primaryTarget?.takeIf { it.metric == Metric.PACE }
-                    ?.let { paceChoice(s.live(Metric.PACE), s.stepAvgSpeed, paceView) }
-                    ?.let { c -> c.other?.let { "${c.otherView.label} ${Format.pace(it, w.paceUnit)}" } }
-
-                step.primaryTarget?.let { t ->
-                    val live = s.live(t.metric)
-                    val cmp = live?.let { t.compare(it, p.fraction) }
-                    // On target is plain ink; off target is a black-on-signal pill around the value plus ▲/▼ word.
-                    val offTarget = cmp != null && cmp != 0
-                    val color = if (cmp == null) Rb.ink3 else Rb.ink
-                    val isPace = t.metric == Metric.PACE
-                    val choice = if (isPace) paceChoice(live, s.stepAvgSpeed, paceView) else null
-                    val heroValue = if (choice != null) choice.hero else live
-                    // Colour and cue stay on live pace; only the number and its label follow the toggle.
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = if (isPace && !s.paused) Modifier.paceToggleGesture(onTogglePace) else Modifier,
-                    ) {
-                        if (heroValue != null) {
-                            Text(
-                                Format.value(t.metric, heroValue, w.paceUnit), fontSize = 24.sp, fontWeight = FontWeight.Bold,
-                                color = if (offTarget) Rb.ground else color,
-                                modifier = if (offTarget) Modifier.background(Rb.signal, RoundedCornerShape(50)).padding(horizontal = 8.dp) else Modifier,
-                            )
-                            Column {
-                                val unit = Format.unitLabel(t.metric, w.paceUnit, w.sport)
-                                Text(if (choice != null) "${choice.heroView.label} $unit" else unit, fontSize = 12.sp, color = TargetColor)
-                                cue(cmp)?.let { Text(it, fontSize = 12.sp, color = Rb.signal, fontWeight = FontWeight.Bold) }
-                            }
-                        } else {
-                            Text(noValueText(s, t.metric), fontSize = 22.sp, color = Rb.ink3, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    if (nextNear && s.next != null) NextBig(s.next!!, w)
-                    else Text(Format.target(t, p.fraction, w.paceUnit, w.sport), fontSize = 16.sp, color = TargetColor, maxLines = 1)
-                }
-                if (nextNear && step.primaryTarget == null) s.next?.let { n -> NextBig(n, w) }
-                Text(secondaryLine(s, paceOther), fontSize = 12.sp, color = Rb.ink2)
-                }
-            }
-            s.error?.let { Text(it, fontSize = 11.sp, color = Rb.signal) }
-
-            if (step == null) Text("Hold ■ to end", fontSize = 11.sp, color = Rb.ink3)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (s.paused) {
-                    RoundButton(onClick = { ExerciseService.resume(ctx) }) { Text("▶") }
-                    HoldToEnd { ExerciseService.end(ctx) }
-                } else {
-                    RoundButton(onClick = { ExerciseService.pause(ctx) }) { Text("❚❚") }
-                    if (step != null && s.next != null) {
-                        // Lap ends an open-ended step, Skip a timed/distance one; hidden when it would end the workout.
-                        RoundButton(onClick = { ExerciseService.lap(ctx) }, secondary = true) {
-                            Text(if (step.endsOnLap) "Lap" else "Skip", fontSize = 14.sp, maxLines = 1)
-                        }
-                    } else {
-                        HoldToEnd { ExerciseService.end(ctx) }
-                    }
-                }
-            }
-
-        }
-    }
-}
-
 /** Full ring on the bezel: dim track plus a sweep for step progress, in the step's kind colour. */
 @Composable
 internal fun ProgressArc(fraction: Float, color: Color, dashed: Boolean = false) {
@@ -437,7 +330,6 @@ internal fun ProgressArc(fraction: Float, color: Color, dashed: Boolean = false)
     }
 }
 
-private val TargetColor = Rb.ink2
 
 
 private const val NEXT_NEAR_SEC = 10.0
@@ -467,24 +359,21 @@ internal fun powerStatusText(status: PowerMeter.Status?): String = when (status)
     else -> "No power"
 }
 
+/** 52 dp round button, the same size as [HoldToEnd]'s, with no ring; [caption] goes under it in 11 sp. */
 @Composable
-private fun NextBig(n: WorkoutStep, w: Workout) {
-    Text("Next: ${n.label}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = kindColor(n.kind), maxLines = 1, overflow = TextOverflow.Ellipsis)
-    n.primaryTarget?.let { Text(Format.target(it, 0.0, w.paceUnit, w.sport), fontSize = 18.sp, color = TargetColor, maxLines = 1) }
-}
-
-/** 52 dp round button, the same size as [HoldToEnd]'s, with no ring, so its slot is 52 dp and the row centres it against the 60 dp End slot. */
-@Composable
-private fun RoundButton(onClick: () -> Unit, secondary: Boolean = false, content: @Composable () -> Unit) {
-    Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier.fillMaxSize()
-                .background(if (secondary) Rb.surface else Rb.ink, CircleShape)
-                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            CompositionLocalProvider(LocalContentColor provides (if (secondary) Rb.ink else Rb.ground)) { content() }
+internal fun RoundButton(onClick: () -> Unit, secondary: Boolean = false, caption: String? = null, content: @Composable () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.fillMaxSize()
+                    .background(if (secondary) Rb.surface else Rb.ink, CircleShape)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                CompositionLocalProvider(LocalContentColor provides (if (secondary) Rb.ink else Rb.ground)) { content() }
+            }
         }
+        caption?.let { Text(it, style = net.mvexel.intervalswatch.wear.ui.RbType.label, color = Rb.ink2, maxLines = 1) }
     }
 }
 
@@ -520,31 +409,6 @@ internal fun HoldToEnd(onEnd: () -> Unit) {
         }
         Text("■")
     }
-}
-
-/** [paceOther] is the pace value the hero isn't showing ("avg 4:23" or "now 4:13"), folded in after the heart rate. */
-private fun secondaryLine(s: Session, paceOther: String? = null): String {
-    val primary = s.step?.primaryTarget?.metric
-    val parts = mutableListOf<String>()
-    if (primary != Metric.HEART_RATE) s.heartRate?.let { parts += "♥ ${it.toInt()}" }
-    paceOther?.let { parts += it }
-    if (primary != Metric.PACE && s.speed != null) {
-        parts += if (s.workout.sport == net.mvexel.intervalswatch.shared.Sport.RIDE) {
-            if (s.workout.paceUnit == net.mvexel.intervalswatch.shared.PaceUnit.MILE) "%.1f mph".format(s.speed * 2.23694)
-            else "%.1f km/h".format(s.speed * 3.6)
-        } else {
-            Format.pace(s.speed, s.workout.paceUnit)
-        }
-    }
-    if (primary != Metric.CADENCE && s.cadence != null) parts += "${s.cadence.toInt()} spm"
-    if (primary != Metric.POWER && s.power != null) parts += "${s.power.toInt()} W"
-    if (s.workout.usesPower && s.power == null) {
-        parts += powerStatusText(s.powerStatus)
-    }
-    if (!s.workout.indoor && !s.gpsReady) parts += "GPS…"
-    parts += Format.duration(s.activeSec)
-    // Non-breaking spaces keep each value with its unit; the line only wraps between fields.
-    return parts.joinToString(" · ") { it.replace(' ', '\u00A0') }
 }
 
 private val AmbientGray = Rb.ink2

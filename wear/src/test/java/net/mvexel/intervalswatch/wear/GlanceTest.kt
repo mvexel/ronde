@@ -63,4 +63,10 @@ class GlanceTest {
         // No average yet: fall back to live even when avg is chosen.
         assertEquals(PaceView.NOW, paceChoice(3.9, null, PaceView.AVG).heroView)
     }
+
+    @Test fun totalTimeFitsAFlank() {
+        assertEquals("31:04", totalTimeText(1864.0))
+        assertEquals("59:59", totalTimeText(3599.0))
+        assertEquals("1:00", totalTimeText(3600.0))
+    }
 }
