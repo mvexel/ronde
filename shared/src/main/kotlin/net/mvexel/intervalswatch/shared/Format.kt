@@ -32,19 +32,19 @@ object Format {
         Metric.PACE -> pace(v, unit)
     }
 
-    fun unitLabel(metric: Metric, unit: PaceUnit): String = when (metric) {
+    fun unitLabel(metric: Metric, unit: PaceUnit, sport: Sport? = null): String = when (metric) {
         Metric.POWER -> "W"
         Metric.HEART_RATE -> "bpm"
-        Metric.CADENCE -> "rpm"
+        Metric.CADENCE -> if (sport == Sport.RUN) "spm" else "rpm"
         Metric.PACE -> paceSuffix(unit)
     }
 
     /** Pace ranges are shown slow–fast, i.e. high m/s last. */
-    fun target(t: Target, fraction: Double, unit: PaceUnit): String {
+    fun target(t: Target, fraction: Double, unit: PaceUnit, sport: Sport? = null): String {
         val r = t.rangeAt(fraction)
         val a = value(t.metric, r.start, unit)
         val b = value(t.metric, r.endInclusive, unit)
         val range = if (a == b) a else "$a–$b"
-        return "$range ${unitLabel(t.metric, unit)}"
+        return "$range ${unitLabel(t.metric, unit, sport)}"
     }
 }

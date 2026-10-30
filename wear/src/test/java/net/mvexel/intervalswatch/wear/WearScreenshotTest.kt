@@ -48,6 +48,7 @@ class WearScreenshotTest {
         heartRate = hr,
         speed = speed,
         power = power,
+        cadence = null,
         powerStatus = PowerMeter.Status.CONNECTED,
         gpsReady = true,
         paused = paused,

@@ -1,7 +1,12 @@
 package net.mvexel.intervalswatch.wear
 
 import net.mvexel.intervalswatch.shared.Metric
+import net.mvexel.intervalswatch.shared.Sport
+import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.StepProgress
+import net.mvexel.intervalswatch.shared.Target
+import net.mvexel.intervalswatch.shared.Workout
+import net.mvexel.intervalswatch.shared.WorkoutStep
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -35,5 +40,19 @@ class GlanceTest {
     @Test fun powerText() {
         assertEquals("Power lost", powerStatusText(PowerMeter.Status.DISCONNECTED))
         assertEquals("No power", powerStatusText(PowerMeter.Status.NOT_FOUND))
+    }
+
+    @Test fun cadenceDrivesTheLiveValue() {
+        val step = WorkoutStep("Run", StepKind.ACTIVE, durationSec = 60, targets = listOf(Target(Metric.CADENCE, 170.0, 180.0)), primary = Metric.CADENCE)
+        val w = Workout(1, "t", Sport.RUN, startLocal = "2026-10-30T07:00:00", steps = listOf(step))
+        val s = Session(
+            w, 0, step, null, StepProgress(0.0, 60.0, 60.0, null, 0.0), 0.0, 0.0,
+            heartRate = 150.0, speed = 3.0, power = null, cadence = 165.0, powerStatus = null,
+            gpsReady = true, paused = false, finished = false, ended = false,
+        )
+        assertEquals(165.0, s.live(Metric.CADENCE)!!, 0.0)
+        assertEquals(-1, step.primaryTarget!!.compare(s.live(Metric.CADENCE)!!, 0.0))
+        assertNull(s.copy(cadence = null).live(Metric.CADENCE))
+        assertEquals("170–180 spm", net.mvexel.intervalswatch.shared.Format.target(step.primaryTarget!!, 0.0, w.paceUnit, w.sport))
     }
 }

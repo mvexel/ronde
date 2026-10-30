@@ -74,6 +74,26 @@ class FitWriterTest {
         assertTrue(fit.toList().windowed(4).any { it == inv.toList() })
     }
 
+    @Test fun runCadenceIsStridesPerMinute() {
+        val run = recording()
+        assertEquals(100L, FitWriter.fitCadence(run, 200))
+        assertEquals(91L, FitWriter.fitCadence(run, 181))
+        val ride = run.copy(sport = Sport.RIDE)
+        assertEquals(90L, FitWriter.fitCadence(ride, 90))
+    }
+
+    @Test fun cadenceFieldIsWrittenHalvedForRuns() {
+        fun fit(cad: Int, sport: Sport): ByteArray {
+            val b = RecordingBuilder("C", sport, false, 1_790_000_000_000L)
+            b.add(RecSample(0.0, 0.0, cadence = cad))
+            return FitWriter.encode(b.build(1.0, 0.0))
+        }
+        // 168 spm → 84 strides; the raw byte 168 must not appear as the record cadence.
+        val run = fit(168, Sport.RUN); val ride = fit(168, Sport.RIDE)
+        assertTrue(run.contains(84.toByte()) && !run.contains(168.toByte()))
+        assertTrue(ride.contains(168.toByte()))
+    }
+
     @Test fun lapsFollowStepBoundaries() {
         val r = recording()
         assertEquals(2, r.laps.size)
