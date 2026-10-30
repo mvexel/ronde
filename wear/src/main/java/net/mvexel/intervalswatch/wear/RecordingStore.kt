@@ -7,6 +7,8 @@ import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import com.google.android.gms.wearable.ChannelClient
+import com.google.android.gms.wearable.CapabilityClient
+import com.google.android.gms.wearable.CapabilityInfo
 import com.google.android.gms.wearable.Node
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -120,9 +122,11 @@ object RecordingStore {
         val files = pending(ctx)
         if (files.isEmpty()) return@withLock
         try {
-            val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
+            // Only nodes that run the phone app; a node without it would never read the channel.
+            val nodes = Wearable.getCapabilityClient(ctx)
+                .getCapability(RecordingProtocol.PHONE_CAPABILITY, CapabilityClient.FILTER_REACHABLE).await().nodes
             if (nodes.isEmpty()) {
-                fail(ctx, files, "Phone not connected. Will send when it reconnects.")
+                fail(ctx, files, "Phone not reachable. Will send when it is.")
                 return@withLock
             }
             for (f in files) for (n in nodes) sendFile(ctx, n, f)
@@ -146,13 +150,15 @@ object RecordingStore {
             }
         }
         channels.registerChannelCallback(ch, cb).await()
+        var ok = false
         try {
             channels.sendFile(ch, f.toUri()).await()
-            val ok = withTimeoutOrNull(SEND_TIMEOUT_MS) { done.await() }
-            if (ok != true) throw IOException("transfer did not complete")
+            ok = withTimeoutOrNull(SEND_TIMEOUT_MS) { done.await() } == true
+            if (!ok) throw IOException("transfer did not complete")
         } finally {
             runCatching { channels.unregisterChannelCallback(cb).await() }
-            runCatching { channels.close(ch).await() }
+            // On success the phone closes the channel once it has the whole file.
+            if (!ok) runCatching { channels.close(ch).await() }
         }
     }
 
@@ -162,14 +168,20 @@ object RecordingStore {
 
     internal fun onResult(ctx: Context, r: RecordingProtocol.Result) {
         restore(ctx)
-        if (r.ok) File(dir(ctx), File(r.fileName).name).delete()
+        val file = File(dir(ctx), File(r.fileName).name)
+        if (r.ok) file.delete()
+        else if (!r.retry) {
+            // Rejected for good: park it so it isn't resent on every start or reconnect.
+            val rejected = File(dir(ctx), "rejected").apply { mkdirs() }
+            file.renameTo(File(rejected, file.name))
+        }
         if (r.fileName == latest || latest == null) {
             set(
                 ctx,
                 when {
                     r.ok -> SaveStatus.Saved
                     r.retry -> SaveStatus.Failed("Upload failed: ${r.reason}. Phone will retry.")
-                    else -> SaveStatus.Failed("Upload failed: ${r.reason}. Not retried.")
+                    else -> SaveStatus.Failed("intervals.icu rejected the file: ${r.reason}")
                 },
             )
         }
@@ -183,8 +195,8 @@ class RecordingResultService : WearableListenerService() {
         RecordingStore.onResult(this, RecordingProtocol.parseResult(event.data))
     }
 
-    /** The phone came back in range: send whatever it hasn't confirmed. */
-    override fun onPeerConnected(peer: Node) {
-        RecordingStore.sendPendingAsync(this)
+    /** The phone app became reachable: send whatever it hasn't confirmed. */
+    override fun onCapabilityChanged(info: CapabilityInfo) {
+        if (info.nodes.isNotEmpty()) RecordingStore.sendPendingAsync(this)
     }
 }

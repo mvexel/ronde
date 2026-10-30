@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lets the watch find this phone (CapabilityClient) and resend recordings when it is reachable. -->
+    <string-array name="android_wear_capabilities">
+        <item>intervalswatch_phone</item>
+    </string-array>
+</resources>

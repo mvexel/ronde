@@ -97,6 +97,13 @@ class FitWriterTest {
         assertEquals("intervalswatch-1790000000", RecordingProtocol.externalId(f))
     }
 
+    @Test fun longMultibyteNamesStayUnderTheFileNameLimit() {
+        val f = RecordingProtocol.fileName(1_790_000_000_000L, "跑".repeat(200) + "😀")
+        // The phone adds ".part" to it.
+        assertTrue(f.length + 5 <= 200)
+        assertTrue(RecordingProtocol.displayName(f).all { it == '跑' })
+    }
+
     @Test fun oneRecordPerSecond() {
         val b = RecordingBuilder("D", Sport.RUN, false, 0L)
         b.add(RecSample(1.2, 0.0)); b.add(RecSample(1.9, 1.0)); b.add(RecSample(2.1, 2.0))

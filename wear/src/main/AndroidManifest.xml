@@ -57,7 +57,8 @@
                 <data android:scheme="wear" android:host="*" android:path="/recording-result" />
             </intent-filter>
             <intent-filter>
-                <action android:name="com.google.android.gms.wearable.BIND_LISTENER" />
+                <action android:name="com.google.android.gms.wearable.CAPABILITY_CHANGED" />
+                <data android:scheme="wear" android:host="*" android:path="/intervalswatch_phone" />
             </intent-filter>
         </service>
     </application>

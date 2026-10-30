@@ -58,6 +58,11 @@ Version 0.1 is untested on a real device so far.
 - [ ] Store the API key with Android Keystore rather than plain DataStore.
 - [ ] App icons.
 
+### Known limitations
+
+- A running workout is recorded in memory and written as a FIT file only when it ends, so if the watch app is
+  killed or crashes mid-workout the recording is lost.
+
 ## Screenshots
 
 CI renders these with [Paparazzi](https://github.com/cashapp/paparazzi) (`./gradlew :wear:recordPaparazziDebug :mobile:recordPaparazziDebug`)

@@ -61,7 +61,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         return when {
             failure == null -> { file.delete(); Result.success() }
             failure.retryable -> Result.retry()
-            else -> Result.failure()
+            else -> { file.delete(); Result.failure() } // the watch keeps its own copy
         }
     }
 

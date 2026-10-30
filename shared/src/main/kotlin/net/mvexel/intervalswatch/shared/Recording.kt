@@ -102,13 +102,29 @@ object RecordingProtocol {
     const val RESULT_PATH = "/recording-result"       // phone → watch message
     const val OK = "ok"
     const val FAIL = "fail"
-    private const val MAX_NAME_CHARS = 60
+    /** Keeps the encoded file name well under the 255-byte limit (base64 grows 4/3). */
+    private const val MAX_NAME_BYTES = 110
+    const val PHONE_CAPABILITY = "intervalswatch_phone"
 
     /** `<epochSec>_<base64url(workout name)>.fit`: safe as a path segment and carries the real name. */
     fun fileName(startEpochMs: Long, name: String): String {
         val enc = java.util.Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(name.take(MAX_NAME_CHARS).toByteArray(Charsets.UTF_8))
+            .encodeToString(truncateUtf8(name, MAX_NAME_BYTES).toByteArray(Charsets.UTF_8))
         return "${startEpochMs / 1000}_$enc.fit"
+    }
+
+    /** Cuts [s] at a code point boundary so its UTF-8 form is at most [maxBytes]. */
+    fun truncateUtf8(s: String, maxBytes: Int): String {
+        var bytes = 0
+        var end = 0
+        while (end < s.length) {
+            val cp = s.codePointAt(end)
+            val n = String(Character.toChars(cp)).toByteArray(Charsets.UTF_8).size
+            if (bytes + n > maxBytes) break
+            bytes += n
+            end += Character.charCount(cp)
+        }
+        return s.substring(0, end)
     }
 
     /** The workout name carried by [fileName]; falls back to "Workout". */
