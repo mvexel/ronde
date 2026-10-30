@@ -41,6 +41,25 @@ object Samples {
       }
     },
     {
+      "id": 104, "type": "Walk", "category": "WORKOUT", "name": "Brisk walk 4x5'",
+      "start_date_local": "2026-11-04T12:00:00",
+      "workout_doc": {
+        "duration": 2400, "threshold_pace": 2.5, "pace_units": "MINS_KM", "target": "PACE",
+        "steps": [
+          {"duration": 300, "warmup": true, "pace": {"value": 60, "units": "%pace"},
+           "_pace": {"value": 1.5, "start": 1.45, "end": 1.55}},
+          {"reps": 4, "steps": [
+            {"duration": 300, "text": "Brisk", "pace": {"value": 90, "units": "%pace"},
+             "_pace": {"value": 2.25, "start": 2.2, "end": 2.3}},
+            {"duration": 120, "intensity": "recovery", "pace": {"value": 60, "units": "%pace"},
+             "_pace": {"value": 1.5, "start": 1.45, "end": 1.55}}
+          ]},
+          {"duration": 300, "cooldown": true, "pace": {"value": 60, "units": "%pace"},
+           "_pace": {"value": 1.5, "start": 1.45, "end": 1.55}}
+        ]
+      }
+    },
+    {
       "id": 103, "type": "VirtualRide", "category": "WORKOUT", "name": "Endurance 90",
       "start_date_local": "2026-11-05T17:30:00",
       "workout_doc": {"duration": 5400, "ftp": 280, "target": "HR",
@@ -52,4 +71,5 @@ object Samples {
     val workouts: List<Workout> by lazy { IntervalsParser.parseEvents(JSON) }
     val ride: Workout get() = workouts.first { it.id == 101L }
     val run: Workout get() = workouts.first { it.id == 102L }
+    val walk: Workout get() = workouts.first { it.id == 104L }
 }

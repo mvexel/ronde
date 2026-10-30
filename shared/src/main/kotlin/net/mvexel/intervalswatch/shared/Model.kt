@@ -5,7 +5,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-enum class Sport { RUN, RIDE, OTHER }
+enum class Sport { RUN, RIDE, WALK, OTHER }
 
 /** Units: POWER = watts, HEART_RATE = bpm, PACE = metres/second, CADENCE = rpm (or spm). */
 @Serializable

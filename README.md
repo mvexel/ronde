@@ -15,7 +15,7 @@ project has two parts:
 - **shared/**: plain Kotlin. Holds the intervals.icu `workout_doc` parser, which flattens repeats and resolves
   %FTP / %LTHR / %pace into W / bpm / m/s, the step engine, and formatting. All of it is unit-tested.
 
-Supported: Run and Ride (indoor variants map to treadmill / stationary bike). Steps can be timed,
+Supported: Run, Ride and Walk (indoor variants map to treadmill / stationary bike). Steps can be timed,
 distance-based or end on lap press. Ramps and power, HR and pace targets are supported.
 
 ## Build
