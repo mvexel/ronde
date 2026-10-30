@@ -26,6 +26,12 @@ class GlanceTest {
         assertFalse(isNearEnd(StepProgress(0.0, null, 0.0, null, 0.0)))
     }
 
+    @Test fun stepAverage() {
+        assertNull(stepAvgSpeed(30.0, 5.0))
+        assertNull(stepAvgSpeed(0.0, 60.0))
+        assertEquals(4.0, stepAvgSpeed(240.0, 60.0)!!, 1e-9)
+    }
+
     @Test fun powerText() {
         assertEquals("Power lost", powerStatusText(PowerMeter.Status.DISCONNECTED))
         assertEquals("No power", powerStatusText(PowerMeter.Status.NOT_FOUND))
