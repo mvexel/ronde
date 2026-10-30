@@ -119,7 +119,7 @@ private fun heroField(metric: Metric, sport: Sport): Field = when (metric) {
 /**
  * Settings.md §2: the Hero is the step's primary target metric (or time left when the step has
  * no target), the Partner is the other of the two. A user slot whose field is already on screen,
- * or has no data, shows the first of HR → Pace/Speed → Total time → Clock that is neither.
+ * or has no data, shows the first of HR → Pace/Speed → Total time → Clock (then Step time) that is neither.
  */
 fun resolveSlots(
     step: WorkoutStep,
@@ -133,7 +133,9 @@ fun resolveSlots(
 
     fun pick(wanted: Field): Field {
         val ok = wanted.offeredFor(sport) && availability.has(wanted) && wanted !in occupied
-        val chosen = if (ok) wanted else backups(sport).first { it !in occupied && availability.has(it) }
+        // Indoors (no pace) with HR, Total time and Clock already on screen the four backups run out:
+        // Step time always has a value, and only past that does a slot repeat what it asked for.
+        val chosen = if (ok) wanted else (backups(sport) + Field.STEP_TIME).firstOrNull { it !in occupied && availability.has(it) } ?: wanted
         occupied += chosen
         return chosen
     }

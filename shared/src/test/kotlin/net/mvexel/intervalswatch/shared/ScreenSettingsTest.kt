@@ -90,6 +90,26 @@ class ScreenSettingsTest {
         assertEquals(all.size, all.toSet().size)
     }
 
+    @Test fun indoorHrAndNoTargetStepsWithDefaultsDoNotRunOutOfBackups() {
+        for (sport in listOf(Sport.RUN, Sport.RIDE)) for (step in listOf(hrStep(), openStep(), lapStep())) {
+            val r = resolveSlots(step, sport, Availability(gps = false), defaults)
+            val all = listOf(r.hero, r.partner, r.flankLeft, r.flankRight, r.bottomEdge)
+            assertEquals("$sport ${step.label}", all.size, all.toSet().size)
+            assertEquals(Field.STEP_TIME, r.bottomEdge)
+        }
+    }
+
+    @Test fun anySettingsOnAnyStepResolveWithoutThrowing() {
+        val fields = Field.entries.filter { it.selectable }
+        val steps = listOf(paceStep(), hrStep(), powerStep(), openStep(), lapStep())
+        val availabilities = (0 until 16).map { b -> Availability(b and 1 != 0, b and 2 != 0, b and 4 != 0, b and 8 != 0) }
+        for (sport in listOf(Sport.RUN, Sport.RIDE)) for (big in BigNumber.entries) for (l in fields) for (r in fields) for (b in fields) {
+            val p = SportSettings.RUN_DEFAULT.copy(bigNumber = big, flankLeft = l, flankRight = r, bottomEdge = b)
+            val s = defaults.copy(run = p, ride = p)
+            for (step in steps) for (a in availabilities) resolveSlots(step, sport, a, s)
+        }
+    }
+
     @Test fun walkAndOtherUseRunProfile() {
         assertEquals(defaults.run, defaults.forSport(Sport.WALK))
         assertEquals(defaults.run, defaults.forSport(Sport.OTHER))

@@ -7,6 +7,7 @@ import net.mvexel.intervalswatch.shared.StepProgress
 import net.mvexel.intervalswatch.shared.Target
 import net.mvexel.intervalswatch.shared.Workout
 import net.mvexel.intervalswatch.shared.WorkoutStep
+import net.mvexel.intervalswatch.wear.ui.isRep
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -14,6 +15,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GlanceTest {
+    @Test fun onlyTargetedWorkStepsAreReps() {
+        val rep = WorkoutStep("VO2", StepKind.ACTIVE, durationSec = 300, targets = listOf(Target(Metric.POWER, 300.0, 316.0)), primary = Metric.POWER)
+        assertTrue(rep.isRep())
+        assertFalse(WorkoutStep("Strides", StepKind.ACTIVE, durationSec = 20).isRep())
+        assertFalse(Workout.open(Sport.RUN, "2026-10-30T07:00:00").steps.single().isRep())
+        assertFalse(rep.copy(kind = StepKind.REST).isRep())
+    }
+
     @Test fun cueWords() {
         assertEquals("▲ push", cue(-1))
         assertEquals("▼ ease", cue(1))

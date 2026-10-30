@@ -60,6 +60,7 @@ import net.mvexel.intervalswatch.wear.ui.Rb
 import net.mvexel.intervalswatch.wear.ui.RbType
 import net.mvexel.intervalswatch.wear.ui.RingVariant
 import net.mvexel.intervalswatch.wear.ui.WorkoutRing
+import net.mvexel.intervalswatch.wear.ui.isRep
 import net.mvexel.intervalswatch.shared.CrownPager
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.focusRequester
@@ -591,7 +592,7 @@ internal fun AmbientWorkout(s: Session, shift: Int = 0) {
 @Composable
 internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
     val w = s.workout
-    val work = w.steps.indices.filter { w.steps[it].kind == net.mvexel.intervalswatch.shared.StepKind.ACTIVE }
+    val work = w.steps.indices.filter { w.steps[it].isRep() }
     val hits = work.count { s.onTarget[it] == true }
     Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
         WorkoutRing(w.steps, RingVariant.Result(s.stepIndex, s.onTarget), 9.dp)

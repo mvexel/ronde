@@ -271,7 +271,7 @@ private fun Hero(s: Session, field: Field, clock: String) {
         )
         if (live && value != null) {
             Column {
-                Text(fieldLabel(s, field), style = RbType.label, color = Rb.ink2)
+                HeartText(fieldLabel(s, field), RbType.label, Rb.ink2)
                 cue(cmp)?.takeIf { !s.paused }?.let { Text(it, style = RbType.label, color = Rb.signal, fontWeight = FontWeight.Bold) }
             }
         }
