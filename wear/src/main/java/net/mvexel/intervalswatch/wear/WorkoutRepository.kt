@@ -21,6 +21,9 @@ class WorkoutRepository(context: Context) : DataClient.OnDataChangedListener {
     private val client = Wearable.getDataClient(context.applicationContext)
     private val _bundle = MutableStateFlow<WorkoutBundle?>(null)
     val bundle: StateFlow<WorkoutBundle?> = _bundle.asStateFlow()
+    private val _phoneLoggedIn = MutableStateFlow(true)
+    /** False once the phone reports it is logged out or its login was refused; true until told otherwise. */
+    val phoneLoggedIn: StateFlow<Boolean> = _phoneLoggedIn.asStateFlow()
     private var injected: Workout? = null
 
     /** Debug builds only: shows an extra workout on top of the synced ones. */
@@ -33,6 +36,13 @@ class WorkoutRepository(context: Context) : DataClient.OnDataChangedListener {
         injected?.let { i -> b.copy(workouts = b.workouts.filter { it.id != i.id } + i) } ?: b
 
     suspend fun load() {
+        client.getDataItems(Uri.parse("wear://*${Sync.AUTH_PATH}")).await().let { auth ->
+            try {
+                auth.firstOrNull()?.let { _phoneLoggedIn.value = DataMapItem.fromDataItem(it).dataMap.getBoolean(Sync.KEY_LOGGED_IN, true) }
+            } finally {
+                auth.release()
+            }
+        }
         val items = client.getDataItems(Uri.parse("wear://*${Sync.DATA_PATH}")).await()
         try {
             items.mapNotNull { decode(DataMapItem.fromDataItem(it).dataMap.getString(Sync.KEY_JSON)) }
@@ -48,6 +58,9 @@ class WorkoutRepository(context: Context) : DataClient.OnDataChangedListener {
 
     override fun onDataChanged(events: DataEventBuffer) {
         events.forEach { e ->
+            if (e.type == DataEvent.TYPE_CHANGED && e.dataItem.uri.path == Sync.AUTH_PATH) {
+                _phoneLoggedIn.value = DataMapItem.fromDataItem(e.dataItem).dataMap.getBoolean(Sync.KEY_LOGGED_IN, true)
+            }
             if (e.type == DataEvent.TYPE_CHANGED && e.dataItem.uri.path == Sync.DATA_PATH) {
                 decode(DataMapItem.fromDataItem(e.dataItem).dataMap.getString(Sync.KEY_JSON))
                     ?.let { _bundle.value = withInjected(it) }

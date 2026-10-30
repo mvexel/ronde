@@ -20,6 +20,9 @@ class UploadHttpException(val code: Int, message: String) : IOException(message)
     val retryable: Boolean get() = code !in 400..499 || code == 401 || code == 403 || code == 429
 }
 
+/** intervals.icu refused the credential (401): the user has to log in again. */
+class AuthExpiredException(message: String) : IOException(message)
+
 private const val TAG = "IntervalsSync"
 
 /** Auth: Bearer for an OAuth token, HTTP Basic with username "API_KEY" for a pasted key (see [Settings.authHeader]). */
@@ -47,7 +50,8 @@ class IntervalsApi(
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     Log.w(TAG, "HTTP ${resp.code}")
-                    throw IOException(friendlyHttpError(resp.code, body, settings.authType))
+                    val msg = friendlyHttpError(resp.code, body, settings.authType)
+                    throw if (resp.code == 401) AuthExpiredException(msg) else IOException(msg)
                 }
                 val parsed = IntervalsParser.parse(body)
                 Log.i(TAG, "HTTP ${resp.code}, events ${parsed.received}, workouts kept ${parsed.workouts.size}")

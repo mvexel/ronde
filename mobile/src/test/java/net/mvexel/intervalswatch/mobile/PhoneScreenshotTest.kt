@@ -32,7 +32,37 @@ class PhoneScreenshotTest {
 
     @Test fun setup() = paparazzi.snapshot {
         RunbumTheme {
+            MainScreen(UiState(), onSync = {}, onEdit = {}, onSave = {})
+        }
+    }
+
+    @Test fun setupApiKey() = paparazzi.snapshot {
+        RunbumTheme {
             MainScreen(UiState(editing = true), onSync = {}, onEdit = {}, onSave = {})
+        }
+    }
+
+    @Test fun signedInOAuth() = paparazzi.snapshot {
+        RunbumTheme {
+            MainScreen(
+                UiState(
+                    settings = Settings(token = "x", authType = AuthType.OAUTH, athleteId = "i12345", athleteName = "Martijn van Exel"),
+                    workouts = Samples.workouts,
+                ),
+                onSync = {}, onEdit = {}, onSave = {},
+            )
+        }
+    }
+
+    @Test fun loginAgain() = paparazzi.snapshot {
+        RunbumTheme {
+            MainScreen(
+                UiState(
+                    settings = Settings(token = "x", authType = AuthType.OAUTH, athleteId = "i12345", athleteName = "Martijn van Exel"),
+                    authExpired = true, status = "Failed: intervals.icu access expired or revoked, log in again",
+                ),
+                onSync = {}, onEdit = {}, onSave = {},
+            )
         }
     }
 }

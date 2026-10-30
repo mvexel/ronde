@@ -57,6 +57,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val settings = SettingsStore(applicationContext).current()
         val failure = uploadRecordingFile(IntervalsApi(), settings, file)
 
+        if (failure?.authRejected == true) WatchSync.pushLoggedIn(applicationContext, false)
         notifyWatch(name, failure)
         return when {
             failure == null -> { file.delete(); Result.success() }
@@ -89,7 +90,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     }
 }
 
-class UploadFailure(val reason: String, val retryable: Boolean)
+class UploadFailure(val reason: String, val retryable: Boolean, val authRejected: Boolean = false)
 
 /** @return null on success, else why not. The reason never contains the credential. */
 suspend fun uploadRecordingFile(api: IntervalsApi, settings: Settings, file: File): UploadFailure? {
@@ -101,6 +102,6 @@ suspend fun uploadRecordingFile(api: IntervalsApi, settings: Settings, file: Fil
             RecordingProtocol.eventId(file.name),
         )
     }.exceptionOrNull()?.let {
-        UploadFailure(it.message ?: "upload failed", (it as? UploadHttpException)?.retryable ?: true)
+        UploadFailure(it.message ?: "upload failed", (it as? UploadHttpException)?.retryable ?: true, (it as? UploadHttpException)?.code == 401)
     }
 }
