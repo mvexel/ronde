@@ -9,8 +9,11 @@ class WorkoutEngine(val workout: Workout) {
 
     var index: Int = 0
         private set
-    private var stepStartSec = 0.0
-    private var stepStartM = 0.0
+    /** Active seconds and metres at which the current step began. */
+    var stepStartSec = 0.0
+        private set
+    var stepStartM = 0.0
+        private set
 
     val finished: Boolean get() = index >= workout.steps.size
     val current: WorkoutStep? get() = workout.steps.getOrNull(index)
