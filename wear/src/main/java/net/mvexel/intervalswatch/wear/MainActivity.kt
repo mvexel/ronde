@@ -9,14 +9,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.wear.compose.material.LocalContentColor
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.animation.core.Animatable
@@ -279,7 +280,7 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(0.dp),
-            modifier = Modifier.padding(horizontal = 26.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 26.dp, vertical = 8.dp),
         ) {
             if (step == null) {
                 Text("Workout done", style = MaterialTheme.typography.title2)
@@ -351,19 +352,17 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
             s.error?.let { Text(it, fontSize = 11.sp, color = Rb.signal) }
 
             if (s.paused || step == null) Text("Hold ■ to end", fontSize = 11.sp, color = Rb.ink3)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (s.paused) {
-                    CompactButton(onClick = { ExerciseService.resume(ctx) }) { Text("▶") }
+                    RoundButton(onClick = { ExerciseService.resume(ctx) }) { Text("▶") }
                     HoldToEnd { ExerciseService.end(ctx) }
                 } else {
-                    CompactButton(onClick = { ExerciseService.pause(ctx) }) { Text("❚❚") }
+                    RoundButton(onClick = { ExerciseService.pause(ctx) }) { Text("❚❚") }
                     if (step != null && s.next != null) {
                         // Lap ends an open-ended step, Skip a timed/distance one; hidden when it would end the workout.
-                        CompactButton(
-                            onClick = { ExerciseService.lap(ctx) },
-                            colors = ButtonDefaults.secondaryButtonColors(),
-                            modifier = Modifier.height(40.dp).widthIn(min = 64.dp),
-                        ) { Text(if (step.endsOnLap) "Lap" else "Skip", fontSize = 14.sp, maxLines = 1) }
+                        RoundButton(onClick = { ExerciseService.lap(ctx) }, secondary = true) {
+                            Text(if (step.endsOnLap) "Lap" else "Skip", fontSize = 14.sp, maxLines = 1)
+                        }
                     } else {
                         HoldToEnd { ExerciseService.end(ctx) }
                     }
@@ -427,6 +426,21 @@ private fun NextBig(n: WorkoutStep, w: Workout) {
     n.primaryTarget?.let { Text(Format.target(it, 0.0, w.paceUnit, w.sport), fontSize = 18.sp, color = TargetColor, maxLines = 1) }
 }
 
+/** 52 dp round button, the same size as [HoldToEnd]'s, with no ring, so its slot is 52 dp and the row centres it against the 60 dp End slot. */
+@Composable
+private fun RoundButton(onClick: () -> Unit, secondary: Boolean = false, content: @Composable () -> Unit) {
+    Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.fillMaxSize()
+                .background(if (secondary) Rb.surface else Rb.ink, CircleShape)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            CompositionLocalProvider(LocalContentColor provides (if (secondary) Rb.ink else Rb.ground)) { content() }
+        }
+    }
+}
+
 /** End button that must be held for a second; a ring fills around it while held, and letting go cancels. */
 @Composable
 internal fun HoldToEnd(onEnd: () -> Unit) {
@@ -480,7 +494,8 @@ private fun secondaryLine(s: Session): String {
     }
     if (!s.workout.indoor) parts += if (s.gpsReady) "GPS" else "GPS…"
     parts += Format.duration(s.activeSec)
-    return parts.joinToString("  ")
+    // Non-breaking spaces keep each value with its unit; the line only wraps between fields.
+    return parts.joinToString("  ") { it.replace(' ', '\u00A0') }
 }
 
 private val AmbientGray = Rb.ink2
