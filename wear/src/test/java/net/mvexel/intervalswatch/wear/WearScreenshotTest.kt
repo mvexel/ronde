@@ -73,6 +73,18 @@ class WearScreenshotTest {
         ActiveWorkout(session(Samples.run, 0, null, remainingM = 1240.0, hr = 138.0, speed = 3.02))
     }
 
+    @Test fun runNextNearEnd() = snap {
+        ActiveWorkout(session(Samples.run, 1, 8.0, hr = 171.0, speed = 3.2))
+    }
+
+    @Test fun runGpsWaiting() = snap {
+        ActiveWorkout(session(Samples.run, 1, 300.0, hr = 120.0).copy(gpsReady = false))
+    }
+
+    @Test fun rideNoPower() = snap {
+        ActiveWorkout(session(Samples.ride, 3, 312.0, hr = 140.0).copy(powerStatus = PowerMeter.Status.DISCONNECTED))
+    }
+
     @Test fun ambient() = snap {
         AmbientWorkout(session(Samples.ride, 3, 312.0, power = 307.0, hr = 162.0, speed = 9.1))
     }

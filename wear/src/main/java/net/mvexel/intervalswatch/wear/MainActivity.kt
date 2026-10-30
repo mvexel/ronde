@@ -58,6 +58,7 @@ import net.mvexel.intervalswatch.shared.Format
 import net.mvexel.intervalswatch.shared.Metric
 import net.mvexel.intervalswatch.shared.Samples
 import net.mvexel.intervalswatch.shared.StepKind
+import net.mvexel.intervalswatch.shared.StepProgress
 import net.mvexel.intervalswatch.shared.Workout
 import net.mvexel.intervalswatch.shared.WorkoutStep
 
@@ -282,6 +283,7 @@ internal fun ActiveWorkout(s: Session) {
                 }
                 Column(Modifier.alpha(if (s.paused) 0.5f else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(left, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                val nextNear = !s.paused && isNearEnd(p)
 
                 step.primaryTarget?.let { t ->
                     val live = s.live(t.metric)
@@ -292,24 +294,27 @@ internal fun ActiveWorkout(s: Session) {
                         -1 -> Color(0xFF42A5F5)
                         else -> Color(0xFFEF5350)
                     }
-                    Text(
-                        live?.let { Format.value(t.metric, it, w.paceUnit) } ?: "--",
-                        fontSize = 28.sp, color = color, fontWeight = FontWeight.Bold,
-                    )
-                    Text(Format.target(t, p.fraction, w.paceUnit), fontSize = 13.sp, color = Color.LightGray)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (live != null) {
+                            Text(Format.value(t.metric, live, w.paceUnit), fontSize = 28.sp, color = color, fontWeight = FontWeight.Bold)
+                            Column {
+                                Text(Format.unitLabel(t.metric, w.paceUnit), fontSize = 12.sp, color = TargetColor)
+                                cue(t.metric, cmp)?.let { Text(it, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold) }
+                            }
+                        } else {
+                            Text(noValueText(s, t.metric), fontSize = 22.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (nextNear && s.next != null) NextBig(s.next!!, w)
+                    else Text(Format.target(t, p.fraction, w.paceUnit), fontSize = 18.sp, color = TargetColor, maxLines = 1)
                 }
+                if (nextNear && step.primaryTarget == null) s.next?.let { n -> NextBig(n, w) }
                 Text(secondaryLine(s), fontSize = 12.sp, color = Color.LightGray)
-                if (!s.paused) s.next?.let { n ->
-                    Text(
-                        "Next: ${n.label}" + (n.primaryTarget?.let { " " + Format.target(it, 0.0, w.paceUnit) } ?: ""),
-                        fontSize = 11.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                }
                 }
             }
             s.error?.let { Text(it, fontSize = 11.sp, color = Color(0xFFEF5350)) }
 
-            if (s.paused) Text("Hold ■ to end", fontSize = 11.sp, color = Color.Gray)
+            if (s.paused || step == null) Text("Hold ■ to end", fontSize = 11.sp, color = Color.Gray)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (s.paused) {
                     CompactButton(onClick = { ExerciseService.resume(ctx) }) { Text("▶") }
@@ -332,6 +337,40 @@ internal fun ActiveWorkout(s: Session) {
 }
 
 private val PausedAmber = Color(0xFFFFB300)
+private val TargetColor = Color(0xFFEEEEEE)
+
+private const val NEXT_NEAR_SEC = 10.0
+private const val NEXT_NEAR_M = 100.0
+
+/** The last 10 s (or 100 m) of a step: the runner needs to know what comes next. */
+internal fun isNearEnd(p: StepProgress): Boolean =
+    (p.remainingSec?.let { it <= NEXT_NEAR_SEC } ?: false) || (p.remainingM?.let { it <= NEXT_NEAR_M } ?: false)
+
+/** Colour-independent cue for the live value: what to do (-1 below target, 1 above, 0/null nothing). */
+internal fun cue(metric: Metric, cmp: Int?): String? = when {
+    cmp == null || cmp == 0 -> null
+    metric == Metric.PACE -> if (cmp < 0) "▲ faster" else "▼ slower"
+    else -> if (cmp < 0) "▲ up" else "▼ ease"
+}
+
+/** Why there is no live value yet, instead of "--". */
+internal fun noValueText(s: Session, metric: Metric): String = when {
+    metric == Metric.PACE && !s.workout.indoor && !s.gpsReady -> "GPS…"
+    metric == Metric.POWER -> powerStatusText(s.powerStatus)
+    else -> "--"
+}
+
+internal fun powerStatusText(status: PowerMeter.Status?): String = when (status) {
+    PowerMeter.Status.SCANNING, PowerMeter.Status.CONNECTED -> "Power…"
+    PowerMeter.Status.DISCONNECTED -> "Power lost"
+    else -> "No power"
+}
+
+@Composable
+private fun NextBig(n: WorkoutStep, w: Workout) {
+    Text("Next: ${n.label}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = kindColor(n.kind), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    n.primaryTarget?.let { Text(Format.target(it, 0.0, w.paceUnit), fontSize = 18.sp, color = TargetColor, maxLines = 1) }
+}
 
 /** End button that must be held for a second; a ring fills while held, and letting go cancels. */
 @Composable
@@ -376,11 +415,7 @@ private fun secondaryLine(s: Session): String {
     }
     if (primary != Metric.POWER && s.power != null) parts += "${s.power.toInt()} W"
     if (s.workout.usesPower && s.power == null) {
-        parts += when (s.powerStatus) {
-            PowerMeter.Status.SCANNING -> "PM…"
-            PowerMeter.Status.DISCONNECTED -> "PM lost"
-            else -> "no PM"
-        }
+        parts += powerStatusText(s.powerStatus)
     }
     if (!s.workout.indoor) parts += if (s.gpsReady) "GPS" else "GPS…"
     parts += Format.duration(s.activeSec)
