@@ -30,6 +30,22 @@ class PhoneScreenshotTest {
         }
     }
 
+    @Test fun recordings() = paparazzi.snapshot {
+        RunbumTheme {
+            MainScreen(
+                UiState(
+                    settings = Settings(token = "x"),
+                    recordings = listOf(
+                        RecordingItem("1_a.fit", "Tempo run", 1_761_800_000, 48_000, UploadState.UPLOADED),
+                        RecordingItem("2_a.fit", "Open ride", 1_761_700_000, 120_000, UploadState.PENDING),
+                        RecordingItem("3_a.fit", "Hills", 1_761_600_000, 30_000, UploadState.FAILED, "rejected by intervals.icu"),
+                    ),
+                ),
+                onSync = {}, onEdit = {}, onSave = {},
+            )
+        }
+    }
+
     @Test fun setup() = paparazzi.snapshot {
         RunbumTheme {
             MainScreen(UiState(), onSync = {}, onEdit = {}, onSave = {})
