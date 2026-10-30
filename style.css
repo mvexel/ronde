@@ -1,0 +1,13 @@
+:root { color-scheme: light dark; }
+body { font: 16px/1.6 system-ui, sans-serif; max-width: 42rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; color: #1c1b18; background: #f6f5f0; }
+@media (prefers-color-scheme: dark) { body { color: #e8e6df; background: #151513; } a { color: #8ab4f8; } }
+h1 { margin-bottom: 0; }
+.tagline { margin-top: .25rem; opacity: .75; }
+.shots { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; margin: 1.5rem 0; }
+.shots figure { margin: 0; }
+.shots img { display: block; height: auto; border-radius: 12px; }
+.phone img { width: 14rem; max-width: 100%; }
+.watch img { width: 10rem; max-width: 100%; border-radius: 50%; }
+figcaption { font-size: .85rem; opacity: .75; margin-top: .4rem; }
+nav a, footer a { margin-right: 1rem; }
+footer { margin-top: 2rem; font-size: .9rem; opacity: .85; }
