@@ -9,6 +9,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HapticsTest {
+    @Test fun strongLengthensPulsesNotGaps() {
+        val strong = net.mvexel.intervalswatch.shared.BuzzStrength.STRONG
+        val normal = net.mvexel.intervalswatch.shared.BuzzStrength.NORMAL
+        assertArrayEquals(longArrayOf(0, 225, 100, 225, 100, 225), Haptics.scaled(Haptics.GO, strong))
+        assertArrayEquals(Haptics.GO, Haptics.scaled(Haptics.GO, normal))
+        assertEquals(255, Haptics.amplitudes(Haptics.GO, strong)[1])
+        assertEquals(0, Haptics.amplitudes(Haptics.GO, strong)[2])
+    }
+
     @Test fun workAndRecoveryDiffer() {
         assertArrayEquals(Haptics.GO, Haptics.stepChange(StepKind.ACTIVE))
         for (k in listOf(StepKind.REST, StepKind.WARMUP, StepKind.COOLDOWN, null))

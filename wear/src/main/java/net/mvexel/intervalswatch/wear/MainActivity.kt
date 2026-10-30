@@ -43,7 +43,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import net.mvexel.intervalswatch.shared.SaveStatus
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import net.mvexel.intervalswatch.shared.keepScreenOn
+import net.mvexel.intervalswatch.shared.withUnits
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -151,6 +154,13 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
     }
 
     val s = session
+    // "Keep on during work steps" (B8): hold the screen on while a work step runs.
+    val keepOn = s != null && !s.ended && settings.keepScreenOn(s.step?.kind)
+    DisposableEffect(keepOn) {
+        val window = (context as? android.app.Activity)?.window
+        if (keepOn) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
     // Swipe right goes back one screen (list: leaves the app), but never during a workout.
     val content: @Composable () -> Unit = {
         when {
@@ -183,7 +193,7 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
             selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
             selected != null && selected!!.isOpen -> OpenStart(selected!!, onBack = { selected = null })
             selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onScreens = { editSport = selected!!.sport }, onBack = { selected = null })
-            else -> WorkoutList(bundle?.workouts.orEmpty(), save, phoneLoggedIn, onSettings = { settingsOpen = true }) { selected = it }
+            else -> WorkoutList(bundle?.workouts.orEmpty().map { it.withUnits(settings) }, save, phoneLoggedIn, onSettings = { settingsOpen = true }) { selected = it }
         }
     }
     if (s != null) content()
