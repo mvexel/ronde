@@ -17,11 +17,11 @@ import org.junit.Rule
 import org.junit.Test
 
 /** Run `./gradlew :wear:recordPaparazziDebug`; PNGs land in wear/src/test/snapshots/images. */
-class WearScreenshotTest {
+abstract class WearScreenshotBase(device: DeviceConfig) {
 
     @get:Rule
     val paparazzi = Paparazzi(
-        deviceConfig = DeviceConfig.WEAR_OS_SMALL_ROUND,
+        deviceConfig = device,
         theme = "android:Theme.DeviceDefault",
         maxPercentDifference = 0.1,
     )
@@ -157,3 +157,8 @@ class WearScreenshotTest {
         ) {}
     }
 }
+
+class WearScreenshotTest : WearScreenshotBase(DeviceConfig.WEAR_OS_SMALL_ROUND)
+
+/** Same screens on a 454 px round watch (about 227 dp, Pixel Watch 45 mm class); Paparazzi has no built-in large round. */
+class WearScreenshotLargeTest : WearScreenshotBase(DeviceConfig.WEAR_OS_SMALL_ROUND.copy(screenWidth = 454, screenHeight = 454))
