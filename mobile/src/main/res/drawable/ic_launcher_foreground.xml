@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Three ascending bars: a stepped interval profile. Drawn inside the 66dp adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,56h10v20h-10z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M49,44h10v32h-10z" />
+    <path
+        android:fillColor="#FFB703"
+        android:pathData="M64,32h10v44h-10z" />
+</vector>
