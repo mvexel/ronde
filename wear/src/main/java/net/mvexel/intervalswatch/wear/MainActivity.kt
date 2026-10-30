@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycle.addObserver(AmbientLifecycleObserver(this, ambientCallback))
-        setContent { RunbumTheme { App(repo, ambient.value, ambientTick.value, burnIn.value) } }
+        setContent { RunbumTheme { App(repo, screenSettings, ambient.value, ambientTick.value, burnIn.value) } }
     }
 
     override fun onStart() {
@@ -127,9 +127,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, burnIn: Boolean) {
+private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, ambient: Boolean, ambientTick: Int, burnIn: Boolean) {
     val bundle by repo.bundle.collectAsStateWithLifecycle()
     val phoneLoggedIn by repo.phoneLoggedIn.collectAsStateWithLifecycle()
+    val settings by screenSettings.settings.collectAsStateWithLifecycle()
     val session by ExerciseService.session.collectAsStateWithLifecycle()
     val save by RecordingStore.status.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -157,7 +158,7 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, bur
             }
 
             s != null -> {
-                ActiveWorkout(s)
+                ActiveWorkout(s, settings)
             }
             selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
             selected != null && selected!!.isOpen -> OpenStart(selected!!, onBack = { selected = null })
