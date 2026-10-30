@@ -9,6 +9,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import net.mvexel.intervalswatch.shared.Sport
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.runtime.CompositionLocalProvider
@@ -151,6 +154,7 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, bur
                 ActiveWorkout(s, paceView, togglePace)
             }
             selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
+            selected != null && selected!!.isOpen -> OpenStart(selected!!, onBack = { selected = null })
             selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onBack = { selected = null })
             else -> WorkoutList(bundle?.workouts.orEmpty(), save, phoneLoggedIn) { selected = it }
         }
@@ -174,6 +178,17 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, bur
 internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phoneLoggedIn: Boolean = true, onPick: (Workout) -> Unit) {
     WatchList {
         item { Text("Workouts", style = MaterialTheme.typography.title3) }
+        item("open") {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                listOf(Sport.RUN to "Run", Sport.RIDE to "Ride", Sport.WALK to "Walk").forEach { (sport, label) ->
+                    Box(
+                        Modifier.size(48.dp).border(1.5.dp, Rb.ink2, CircleShape).clip(CircleShape)
+                            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = { onPick(Workout.open(sport, java.time.LocalDateTime.now().withNano(0).toString())) }),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(label, fontSize = 12.sp, maxLines = 1) }
+                }
+            }
+        }
         // Last upload still unresolved after a restart.
         if (save is SaveStatus.Failed) {
             item { Text(save.reason, fontSize = 11.sp, color = Rb.signal, textAlign = TextAlign.Center) }
@@ -214,22 +229,37 @@ internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phon
     }
 }
 
+/** Open Run/Ride/Walk: no detail screen, straight into permissions and the recording. */
+@Composable
+private fun OpenStart(w: Workout, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        ExerciseService.start(ctx, w)
+    }
+    LaunchedEffect(w) { launcher.launch(workoutPermissions(w)) }
+    Box(Modifier.fillMaxSize().background(Rb.ground), contentAlignment = Alignment.Center) {
+        Text(w.name, style = MaterialTheme.typography.title3)
+    }
+}
+
+private fun workoutPermissions(w: Workout): Array<String> = buildList {
+    // Wear OS 6 (API 36) replaces BODY_SENSORS with the Health permission for heart rate.
+    // compileSdk is 35, so the new name is a string literal.
+    if (Build.VERSION.SDK_INT >= 36) add("android.permission.health.READ_HEART_RATE")
+    else add(Manifest.permission.BODY_SENSORS)
+    add(Manifest.permission.ACTIVITY_RECOGNITION)
+    add(Manifest.permission.POST_NOTIFICATIONS)
+    if (!w.indoor) add(Manifest.permission.ACCESS_FINE_LOCATION)
+    if (w.usesPower) {
+        add(Manifest.permission.BLUETOOTH_SCAN)
+        add(Manifest.permission.BLUETOOTH_CONNECT)
+    }
+}.toTypedArray()
+
 @Composable
 private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    val perms = remember(w.indoor, w.usesPower) { buildList {
-        // Wear OS 6 (API 36) replaces BODY_SENSORS with the Health permission for heart rate.
-        // compileSdk is 35, so the new name is a string literal.
-        if (Build.VERSION.SDK_INT >= 36) add("android.permission.health.READ_HEART_RATE")
-        else add(Manifest.permission.BODY_SENSORS)
-        add(Manifest.permission.ACTIVITY_RECOGNITION)
-        add(Manifest.permission.POST_NOTIFICATIONS)
-        if (!w.indoor) add(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (w.usesPower) {
-            add(Manifest.permission.BLUETOOTH_SCAN)
-            add(Manifest.permission.BLUETOOTH_CONNECT)
-        }
-    }.toTypedArray() }
+    val perms = remember(w.indoor, w.usesPower) { workoutPermissions(w) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         ExerciseService.start(ctx, w)
     }
@@ -562,7 +592,7 @@ internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
         item { Text(s.workout.name, textAlign = TextAlign.Center) }
         item { Text("Time ${Format.duration(s.activeSec)}") }
         if (s.distanceM > 0) item { Text(Format.distance(s.distanceM, s.workout.paceUnit)) }
-        item { Text("Steps ${minOf(s.stepIndex, s.workout.steps.size)}/${s.workout.steps.size}") }
+        if (!s.workout.isOpen) item { Text("Steps ${minOf(s.stepIndex, s.workout.steps.size)}/${s.workout.steps.size}") }
         item {
             when (save) {
                 SaveStatus.Saving -> Text("Saving…", color = Rb.ink2)

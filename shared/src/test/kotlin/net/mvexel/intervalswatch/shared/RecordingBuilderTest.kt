@@ -2,6 +2,7 @@ package net.mvexel.intervalswatch.shared
 
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 
 class RecordingBuilderTest {
     private fun builder() = RecordingBuilder("w", Sport.RUN, true, 0L)
@@ -21,5 +22,19 @@ class RecordingBuilderTest {
         assertEquals(200, s.power)
         assertEquals(150, s.hr)
         assertEquals(1.0, s.lat)
+    }
+
+    @Test fun openWorkoutHasNoStepsOrTargetsAndSport() {
+        val w = Workout.open(Sport.RIDE, "2026-10-30T07:00:00")
+        assertTrue(w.isOpen)
+        assertEquals(Sport.RIDE, w.sport)
+        assertEquals("Open ride", w.name)
+        assertTrue(w.steps.single().let { it.endsOnLap && it.targets.isEmpty() })
+    }
+
+    @Test fun openRecordingFileCarriesNoEventId() {
+        val name = RecordingProtocol.fileName(1_000_000L, "Open walk", null)
+        assertEquals(null, RecordingProtocol.eventId(name))
+        assertEquals("Open walk", RecordingProtocol.displayName(name))
     }
 }

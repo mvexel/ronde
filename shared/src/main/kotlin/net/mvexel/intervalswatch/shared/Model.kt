@@ -85,6 +85,22 @@ data class Workout(
     val paceUnit: PaceUnit = PaceUnit.KM,
 ) {
     val usesPower: Boolean get() = steps.any { s -> s.targets.any { it.metric == Metric.POWER } }
+
+    /** Not on the calendar: no planned event to link the recording to. */
+    val isOpen: Boolean get() = id == OPEN_ID
+
+    companion object {
+        const val OPEN_ID = 0L
+
+        /** An open Run/Ride/Walk: one step with no length and no target, ended by the user. */
+        fun open(sport: Sport, startLocal: String): Workout = Workout(
+            id = OPEN_ID,
+            name = "Open ${sport.name.lowercase()}",
+            sport = sport,
+            startLocal = startLocal,
+            steps = listOf(WorkoutStep(label = "Open", kind = StepKind.ACTIVE)),
+        )
+    }
 }
 
 /** What the phone puts in the Wearable Data Layer. */
