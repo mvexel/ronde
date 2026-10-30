@@ -8,6 +8,9 @@ import net.mvexel.intervalswatch.wear.ui.RunbumTheme
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import net.mvexel.intervalswatch.shared.Samples
+import net.mvexel.intervalswatch.shared.ScreenSettings
+import net.mvexel.intervalswatch.shared.Slot
+import net.mvexel.intervalswatch.shared.Sport
 import net.mvexel.intervalswatch.shared.SaveStatus
 import net.mvexel.intervalswatch.shared.Metric
 import net.mvexel.intervalswatch.shared.StepProgress
@@ -156,6 +159,14 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
             selectedName = "Stryd 4F2A",
             onPick = {}, onForget = {}, onRescan = {}, onBack = {},
         )
+    }
+
+    @Test fun settingsList() = snap { SettingsList(ScreenSettings(), {}, {}, {}) }
+
+    @Test fun slotMap() = snap { SlotMapScreen(Sport.RUN, ScreenSettings().run, { _, _ -> }) }
+
+    @Test fun slotMapDial() = snap {
+        SlotMapScreen(Sport.RIDE, ScreenSettings().ride, { _, _ -> }, initialSelected = Slot.FLANK_RIGHT)
     }
 
     @Test fun summary() = snap {

@@ -14,6 +14,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import net.mvexel.intervalswatch.shared.Sport
+import net.mvexel.intervalswatch.shared.BuzzStrength
+import net.mvexel.intervalswatch.shared.withSlot
+import net.mvexel.intervalswatch.shared.withSport
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.runtime.CompositionLocalProvider
@@ -136,6 +139,10 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
     val context = LocalContext.current
     var selected by remember { mutableStateOf<Workout?>(null) }
     var picking by remember { mutableStateOf(false) }
+    // Settings editor (B7): the list, and the slot map for one sport. Neither is reachable during a session.
+    var settingsOpen by remember { mutableStateOf(false) }
+    var editSport by remember { mutableStateOf<Sport?>(null) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         RecordingStore.restore(context)
@@ -160,17 +167,32 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
             s != null -> {
                 ActiveWorkout(s, settings)
             }
+            editSport != null -> SlotMapScreen(editSport!!, settings.forSport(editSport!!), { slot, field ->
+                scope.launch { screenSettings.update { it.withSport(editSport!!) { p -> p.withSlot(slot, field) } } }
+            })
+            settingsOpen -> SettingsList(
+                settings,
+                onEditSport = { editSport = it },
+                onToggleOffTarget = { sport -> scope.launch { screenSettings.update { it.withSport(sport) { p -> p.copy(offTargetBuzz = !p.offTargetBuzz) } } } },
+                onBuzzStrength = {
+                    val next = if (settings.buzzStrength == BuzzStrength.STRONG) BuzzStrength.NORMAL else BuzzStrength.STRONG
+                    playBuzzSample(context, next)
+                    scope.launch { screenSettings.update { it.copy(buzzStrength = next) } }
+                },
+            )
             selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
             selected != null && selected!!.isOpen -> OpenStart(selected!!, onBack = { selected = null })
-            selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onBack = { selected = null })
-            else -> WorkoutList(bundle?.workouts.orEmpty(), save, phoneLoggedIn) { selected = it }
+            selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onScreens = { editSport = selected!!.sport }, onBack = { selected = null })
+            else -> WorkoutList(bundle?.workouts.orEmpty(), save, phoneLoggedIn, onSettings = { settingsOpen = true }) { selected = it }
         }
     }
     if (s != null) content()
-    else androidx.compose.runtime.key(selected, picking) {
+    else androidx.compose.runtime.key(selected, picking, settingsOpen, editSport) {
         androidx.wear.compose.material.SwipeToDismissBox(
             onDismissed = {
                 when {
+                    editSport != null -> editSport = null
+                    settingsOpen -> settingsOpen = false
                     picking -> picking = false
                     selected != null -> selected = null
                     else -> (context as? android.app.Activity)?.finish()
@@ -182,7 +204,7 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
 }
 
 @Composable
-internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phoneLoggedIn: Boolean = true, onPick: (Workout) -> Unit) {
+internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phoneLoggedIn: Boolean = true, onSettings: (() -> Unit)? = null, onPick: (Workout) -> Unit) {
     WatchList {
         item { Text("Workouts", style = MaterialTheme.typography.title3) }
         item("open") {
@@ -233,6 +255,11 @@ internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phon
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        if (onSettings != null) {
+            item("settings") {
+                Chip(onClick = onSettings, label = { Text("Settings") }, colors = ChipDefaults.secondaryChipColors(), modifier = Modifier.fillMaxWidth())
+            }
+        }
     }
 }
 
@@ -264,7 +291,7 @@ private fun workoutPermissions(w: Workout): Array<String> = buildList {
 }.toTypedArray()
 
 @Composable
-private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onBack: () -> Unit) {
+private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onScreens: (() -> Unit)? = null, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val perms = remember(w.indoor, w.usesPower) { workoutPermissions(w) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -282,6 +309,17 @@ private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onBack: () -> Uni
                     onClick = onPickPower,
                     label = { Text("Power meter") },
                     secondaryLabel = { Text(store.name ?: "None chosen") },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        if (onScreens != null) {
+            item("screens") {
+                Chip(
+                    onClick = onScreens,
+                    label = { Text("Screens") },
+                    secondaryLabel = { Text(if (w.sport == Sport.RIDE) "Ride fields" else "Run fields") },
                     colors = ChipDefaults.secondaryChipColors(),
                     modifier = Modifier.fillMaxWidth(),
                 )
