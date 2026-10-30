@@ -1,6 +1,7 @@
 package net.mvexel.intervalswatch.wear
 
 import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -125,7 +126,10 @@ internal fun WorkoutList(workouts: List<Workout>, onPick: (Workout) -> Unit) {
 private fun WorkoutDetail(w: Workout, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val perms = buildList {
-        add(Manifest.permission.BODY_SENSORS)
+        // Wear OS 6 (API 36) replaces BODY_SENSORS with the Health permission for heart rate.
+        // compileSdk is 35, so the new name is a string literal.
+        if (Build.VERSION.SDK_INT >= 36) add("android.permission.health.READ_HEART_RATE")
+        else add(Manifest.permission.BODY_SENSORS)
         add(Manifest.permission.ACTIVITY_RECOGNITION)
         add(Manifest.permission.POST_NOTIFICATIONS)
         if (!w.indoor) add(Manifest.permission.ACCESS_FINE_LOCATION)
