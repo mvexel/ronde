@@ -35,9 +35,21 @@ class IntervalsApi(
             client.newCall(req).execute().use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
-                    throw IOException("intervals.icu HTTP ${resp.code}: ${body.take(200)}")
+                    throw IOException(friendlyHttpError(resp.code, body))
                 }
                 IntervalsParser.parseEvents(body)
             }
         }
+}
+
+/**
+ * User-facing text for a failed intervals.icu call. Never returns the raw response body:
+ * 401/403 mean the key was refused; other errors show the status code and, if the body
+ * carries one, its short "error" or "message" text.
+ */
+internal fun friendlyHttpError(code: Int, body: String): String {
+    if (code == 401 || code == 403) return "API key rejected, check it in intervals.icu settings"
+    val detail = Regex("\"(?:error|message)\"\\s*:\\s*\"([^\"]{1,100})\"")
+        .find(body)?.groupValues?.get(1)
+    return if (detail != null) "intervals.icu HTTP $code: $detail" else "intervals.icu HTTP $code"
 }
