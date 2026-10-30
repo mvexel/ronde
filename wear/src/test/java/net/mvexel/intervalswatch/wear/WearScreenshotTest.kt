@@ -188,6 +188,10 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
         Summary(done.copy(onTarget = w.steps.indices.filter { w.steps[it].kind == StepKind.ACTIVE }.take(1).associateWith { true }, avgHeartRate = 152.0), SaveStatus.Saved) {}
     }
 
+    @Test fun summaryOpenRide() = snap {
+        Summary(session(openRide, 0, null, ended = true).copy(avgHeartRate = 131.0), SaveStatus.Saved) {}
+    }
+
     @Test fun summary() = snap {
         Summary(session(Samples.ride, Samples.ride.steps.size, null, ended = true), SaveStatus.Saved) {}
     }

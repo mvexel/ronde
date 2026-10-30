@@ -28,13 +28,16 @@ sealed interface RingVariant {
     data class Highlight(val index: Int) : RingVariant
     /** A white radial tick at the current position (workout ring page). */
     data class Now(val stepIndex: Int, val fraction: Double) : RingVariant
-    /** Summary: finished steps filled, missed reps hollow. [onTarget] says which work steps made it. */
+    /** Summary: reached steps filled, missed reps hollow. [onTarget] says which reps ([isRep]) made it. */
     data class Result(val stepIndex: Int, val onTarget: Map<Int, Boolean>) : RingVariant
     /** Ambient: a thin track with the current step in ink2. */
     data class Hairline(val current: Int) : RingVariant
 }
 
 private fun StepKind.strength() = if (this == StepKind.ACTIVE) 1f else 0.55f
+
+/** A rep is a work step with a target: only those can be on or off target (an open run's single step is not one). */
+fun WorkoutStep.isRep() = kind == StepKind.ACTIVE && primaryTarget != null
 
 /** The workout as a ring: each step an arc proportional to its duration. Fills its box; [stroke] is the arc width. */
 @Composable
@@ -64,7 +67,7 @@ fun WorkoutRing(steps: List<WorkoutStep>, variant: RingVariant, stroke: Dp, modi
                     if (done > 0f) drawArc(kind, start, done, false, tl, sz, style = Stroke(w))
                 }
                 is RingVariant.Result -> {
-                    val filled = if (step.kind == StepKind.ACTIVE) variant.onTarget[seg.index] == true else seg.index < variant.stepIndex
+                    val filled = if (step.isRep()) variant.onTarget[seg.index] == true else seg.index <= variant.stepIndex
                     if (filled) drawArc(kind.copy(alpha = step.kind.strength()), start, seg.sweepDeg, false, tl, sz, style = Stroke(w))
                     else drawArc(kind.copy(alpha = 0.6f), start, seg.sweepDeg, false, tl, sz, style = Stroke(w / 4))
                 }
