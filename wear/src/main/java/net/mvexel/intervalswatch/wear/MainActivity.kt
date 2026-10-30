@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Bundle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -77,6 +79,7 @@ import net.mvexel.intervalswatch.shared.WorkoutStep
 class MainActivity : ComponentActivity() {
 
     private lateinit var repo: WorkoutRepository
+    private lateinit var screenSettings: ScreenSettingsStore
 
     // Ambient mode: the screen dims instead of staying on. The system calls onUpdateAmbient about
     // once a minute; each call bumps ambientTick so the ambient screen recomposes only then.
@@ -96,6 +99,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repo = WorkoutRepository(this)
+        screenSettings = ScreenSettingsStore(this)
         // adb shell am start -n .../.wear.MainActivity --es debug_sample ride|run|walk
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             when (intent.getStringExtra("debug_sample")) {
@@ -111,10 +115,13 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         repo.startListening()
+        screenSettings.startListening()
+        lifecycleScope.launch { screenSettings.load() }
     }
 
     override fun onStop() {
         repo.stopListening()
+        screenSettings.stopListening()
         super.onStop()
     }
 }

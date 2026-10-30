@@ -160,3 +160,17 @@ fun resolveSlots(
     val bottom = pick(profile.bottomEdge)
     return ResolvedSlots(hero, partner, flankLeft, flankRight, bottom)
 }
+
+/** Data Layer item `/settings`, written by either side; last write wins (settings.md §4.1). */
+object SettingsSync {
+    const val PATH = "/settings"
+    const val KEY_JSON = "json"
+
+    /** The copy to keep: [remote] only when it is strictly newer, so a tie or an echo changes nothing. */
+    fun merge(local: ScreenSettings, remote: ScreenSettings): ScreenSettings =
+        if (remote.updatedAt > local.updatedAt) remote else local
+
+    /** An unreadable item (older or newer app version) is ignored, not fatal. */
+    fun decodeOrNull(json: String?): ScreenSettings? =
+        json?.let { runCatching { ScreenSettings.fromJson(it) }.getOrNull() }
+}
