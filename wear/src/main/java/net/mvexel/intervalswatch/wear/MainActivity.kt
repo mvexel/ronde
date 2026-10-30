@@ -1,6 +1,7 @@
 package net.mvexel.intervalswatch.wear
 
 import android.Manifest
+import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -43,6 +44,7 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import net.mvexel.intervalswatch.shared.Format
 import net.mvexel.intervalswatch.shared.Metric
+import net.mvexel.intervalswatch.shared.Samples
 import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.Workout
 import net.mvexel.intervalswatch.shared.WorkoutStep
@@ -54,6 +56,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repo = WorkoutRepository(this)
+        // adb shell am start -n .../.wear.MainActivity --es debug_sample ride|run
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            when (intent.getStringExtra("debug_sample")) {
+                "ride" -> repo.inject(Samples.ride)
+                "run" -> repo.inject(Samples.run)
+            }
+        }
         setContent { MaterialTheme { App(repo) } }
     }
 
