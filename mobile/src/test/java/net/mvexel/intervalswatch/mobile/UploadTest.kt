@@ -16,7 +16,7 @@ import java.io.IOException
 
 class UploadTest {
     private val key = "sekrit-api-key-123"
-    private val settings = Settings(apiKey = key)
+    private val settings = Settings(token = key)
     private lateinit var server: MockWebServer
     private lateinit var api: IntervalsApi
     private val fit = byteArrayOf(14, 0x20, 0, 0, 1, 2, 3)
@@ -122,9 +122,65 @@ class UploadTest {
 
     @Test fun missingKeyDoesNotCallTheServer() {
         val file = File.createTempFile("1_Ride", ".fit")
-        val failure = runBlocking { uploadRecordingFile(api, Settings(apiKey = ""), file) }
+        val failure = runBlocking { uploadRecordingFile(api, Settings(token = ""), file) }
         assertNotNull(failure)
         assertEquals(0, server.requestCount)
         file.delete()
+    }
+
+    private val oauth = Settings(token = "tok-123", authType = AuthType.OAUTH)
+
+    @Test fun oauthUploadSendsBearer() {
+        server.enqueue(MockResponse().setResponseCode(201).setBody("[]"))
+        runBlocking { api.uploadActivity(oauth, fit, "1_Ride.fit", "Ride", "intervalswatch-1") }
+        assertEquals("Bearer tok-123", server.takeRequest().getHeader("Authorization"))
+    }
+
+    @Test fun apiKeyUploadSendsBasic() {
+        server.enqueue(MockResponse().setResponseCode(201).setBody("[]"))
+        upload()
+        assertEquals(okhttp3.Credentials.basic("API_KEY", key), server.takeRequest().getHeader("Authorization"))
+    }
+
+    @Test fun plannedWorkoutsSendsBearerForOAuthAndBasicForKey() {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("[]"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("[]"))
+        runBlocking { api.plannedWorkouts(oauth); api.plannedWorkouts(settings) }
+        assertEquals("Bearer tok-123", server.takeRequest().getHeader("Authorization"))
+        assertEquals(okhttp3.Credentials.basic("API_KEY", key), server.takeRequest().getHeader("Authorization"))
+    }
+
+    @Test fun oauthAuthErrorDoesNotMentionApiKey() {
+        server.enqueue(MockResponse().setResponseCode(401))
+        val e = runCatching { runBlocking { api.uploadActivity(oauth, fit, "1_Ride.fit", "Ride", "x") } }.exceptionOrNull()!!
+        assertFalse(e.message!!, e.message!!.contains("API key"))
+        assertFalse(e.message!!.contains("tok-123"))
+    }
+
+    @Test fun logoutRevokesThenClears() {
+        server.enqueue(MockResponse().setResponseCode(200))
+        var cleared = false
+        runBlocking { logout(oauth, api) { cleared = true } }
+        val req = server.takeRequest()
+        assertEquals("DELETE", req.method)
+        assertEquals("/api/v1/disconnect-app", req.path)
+        assertEquals("Bearer tok-123", req.getHeader("Authorization"))
+        assertTrue(cleared)
+    }
+
+    @Test fun logoutClearsEvenWhenDisconnectFails() {
+        server.enqueue(MockResponse().setResponseCode(500))
+        var cleared = false
+        runBlocking { logout(oauth, api) { cleared = true } }
+        assertTrue(cleared)
+        server.shutdown()
+        cleared = false
+        runBlocking { logout(oauth, api) { cleared = true } }
+        assertTrue(cleared)
+    }
+
+    @Test fun logoutOfApiKeyMakesNoRequest() {
+        runBlocking { logout(settings, api) {} }
+        assertEquals(0, server.requestCount)
     }
 }

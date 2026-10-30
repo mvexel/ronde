@@ -20,7 +20,7 @@ class PhoneScreenshotTest {
         RunbumTheme {
             MainScreen(
                 UiState(
-                    settings = Settings(apiKey = "x"),
+                    settings = Settings(token = "x"),
                     workouts = Samples.workouts,
                     watches = listOf("Pixel Watch 3"),
                     status = "Sent 3 workout(s) to the watch",
