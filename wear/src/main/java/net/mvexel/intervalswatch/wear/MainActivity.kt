@@ -165,7 +165,7 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
             }
 
             s != null -> {
-                ActiveWorkout(s, settings)
+                PagedWorkout(s, settings)
             }
             editSport != null -> SlotMapScreen(editSport!!, settings.forSport(editSport!!), { slot, field ->
                 scope.launch { screenSettings.update { it.withSport(editSport!!) { p -> p.withSlot(slot, field) } } }

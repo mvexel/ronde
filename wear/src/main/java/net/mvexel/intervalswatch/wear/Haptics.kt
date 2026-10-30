@@ -29,6 +29,9 @@ object Haptics {
     val SENSOR_LOST = longArrayOf(0, 250, 150, 250)
     val SENSOR_BACK = longArrayOf(0, 120)
 
+    /** Crown page change: one light tick. */
+    val PAGE_TICK = longArrayOf(0, 25)
+
     val DONE = longArrayOf(0, 300, 150, 300, 150, 300)
 
     fun stepChange(into: StepKind?) = if (into == StepKind.ACTIVE) GO else EASE

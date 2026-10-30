@@ -95,6 +95,15 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
         ActiveWorkout(clock = "14:05", s = session(Samples.ride.copy(indoor = true), 3, 312.0, power = 307.0, hr = 162.0))
     }
 
+    @Test fun totalsPage() = snap {
+        TotalsPage(
+            session(Samples.workouts[0], 1, 120.0, hr = 150.0, speed = 3.5).copy(avgHeartRate = 148.0),
+            net.mvexel.intervalswatch.shared.ScreenSettings(), clock = "7:42",
+        )
+    }
+
+    @Test fun workoutRingPage() = snap { WorkoutRingPage(session(Samples.workouts[0], 1, 120.0)) }
+
     @Test fun controlsOnTap() = snap {
         ActiveWorkout(clock = "14:05", s = session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8), controlsInitiallyUp = true)
     }

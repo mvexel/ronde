@@ -53,7 +53,7 @@ private const val CONTROLS_MS = 4000L
 
 private val clockFormat = DateTimeFormatter.ofPattern("H:mm")
 
-private fun clockNow(): String = LocalTime.now().format(clockFormat)
+internal fun clockNow(): String = LocalTime.now().format(clockFormat)
 
 /** Which data this session has: no GPS indoors, no power without a power target, no cadence on a ride (RF01). */
 internal fun Session.availability() = Availability(
@@ -71,6 +71,10 @@ internal fun workoutLeftSec(s: Session): Double? {
     val later = steps.drop(s.stepIndex + 1).sumOf { (it.durationSec ?: 0).toDouble() }
     return (current + later).takeIf { it > 0 }
 }
+
+/** Whole-session average speed in m/s (distance over active time); null until it means something. */
+internal fun averageSpeed(s: Session): Double? =
+    if (s.activeSec < 10.0 || s.distanceM <= 0.0) null else s.distanceM / s.activeSec
 
 /** m:ss up to 59:59, then h:mm: at most 5 characters, so it fits a flank (settings.md §2). */
 internal fun totalTimeText(sec: Double): String {
@@ -106,8 +110,9 @@ internal fun fieldValue(s: Session, field: Field, clock: String): String? {
         Field.CLOCK -> clock
         Field.STEP_TIME -> totalTimeText(s.progress.elapsedSec)
         Field.WORKOUT_LEFT -> workoutLeftSec(s)?.let { (if (s.workout.steps.any { st -> st.durationSec == null }) "~" else "") + totalTimeText(it) }
-        // Running means arrive with the Totals page (B4).
-        Field.AVG_HR, Field.AVG_PACE, Field.AVG_POWER -> null
+        Field.AVG_HR -> s.avgHeartRate?.let { "${it.toInt()}" }
+        Field.AVG_PACE -> averageSpeed(s)?.let { Format.pace(it, unit) }
+        Field.AVG_POWER -> s.avgPower?.let { "${it.toInt()}" }
         Field.TIME_LEFT -> timeLeftText(s)
     }
 }
@@ -133,7 +138,7 @@ internal fun fieldLabel(s: Session, field: Field): String {
 
 /** Why [field] has no number yet ("GPS…", "No power"), instead of "--". */
 internal fun fieldWaiting(s: Session, field: Field): String = when (field) {
-    Field.PACE, Field.STEP_AVG_PACE, Field.SPEED -> if (!s.workout.indoor && !s.gpsReady) "GPS…" else "--"
+    Field.PACE, Field.STEP_AVG_PACE, Field.AVG_PACE, Field.SPEED -> if (!s.workout.indoor && !s.gpsReady) "GPS…" else "--"
     Field.POWER -> powerStatusText(s.powerStatus)
     else -> "--"
 }
