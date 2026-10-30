@@ -22,6 +22,8 @@ object IntervalsParser {
         explicitNulls = false
     }
 
+    private val RECOVERY_TEXT = Regex("\\b(recover\\w*|rest)\\b", RegexOption.IGNORE_CASE)
+
     fun parseEvents(body: String): List<Workout> =
         json.decodeFromString<List<EventDto>>(body)
             .filter { it.category == null || it.category == "WORKOUT" }
@@ -74,12 +76,15 @@ object IntervalsParser {
     }
 
     private fun toStep(s: StepDto, doc: WorkoutDocDto, repeat: String?): WorkoutStep {
+        val text = s.text?.takeIf { it.isNotBlank() }
+        val saysRecovery = text != null && RECOVERY_TEXT.containsMatchIn(text)
         val kind = when {
             s.warmup == true -> StepKind.WARMUP
             s.cooldown == true -> StepKind.COOLDOWN
             s.intensity == "rest" || s.intensity == "recovery" -> StepKind.REST
             s.intensity == "warmup" -> StepKind.WARMUP
             s.intensity == "cooldown" -> StepKind.COOLDOWN
+            saysRecovery -> StepKind.REST
             else -> StepKind.ACTIVE
         }
         val ramp = s.ramp == true
@@ -99,11 +104,13 @@ object IntervalsParser {
             ?: targets.firstOrNull { it.metric != Metric.CADENCE }?.metric
         val distance = (s.resolvedDistance ?: s.distance)?.takeIf { it > 0 }
         val duration = s.duration?.takeIf { it > 0 }
-        val label = s.text?.takeIf { it.isNotBlank() } ?: when (kind) {
-            StepKind.WARMUP -> "Warm up"
-            StepKind.COOLDOWN -> "Cool down"
-            StepKind.REST -> "Recover"
-            StepKind.ACTIVE -> "Work"
+        // A rest step is always shown as Recovery, even when intervals.icu gave it a generic
+        // text such as "Work" (which would otherwise read "1/4 Work" on the watch).
+        val label = when (kind) {
+            StepKind.REST -> text?.takeIf { saysRecovery } ?: "Recovery"
+            StepKind.WARMUP -> text ?: "Warm up"
+            StepKind.COOLDOWN -> text ?: "Cool down"
+            StepKind.ACTIVE -> text ?: "Work"
         }
         return WorkoutStep(
             label = label,
