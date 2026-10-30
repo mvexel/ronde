@@ -25,6 +25,11 @@ distance-based or end on lap press. Ramps and power, HR and pace targets are sup
 ./gradlew :mobile:assembleDebug :wear:assembleDebug
 ```
 
+The build needs JDK 21. `gradle/gradle-daemon-jvm.properties` makes Gradle run its daemon on JDK 21 even when
+the `java` on your PATH is newer (JDK 25 breaks the build scripts). Gradle has to find a JDK 21 first: via
+`JAVA_HOME`, or on a machine where it is not in a standard location, via
+`org.gradle.java.installations.paths=/path/to/jdk-21` in `~/.gradle/gradle.properties`.
+
 This needs the Android SDK (`ANDROID_HOME` or `local.properties` with `sdk.dir=`). CI builds both APKs on
 every push. Download them from the Actions run (`apks` artifact).
 
