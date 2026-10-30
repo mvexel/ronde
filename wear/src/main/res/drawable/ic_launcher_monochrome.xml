@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome layer for themed icons: the Workout ring (direction A) in one colour, shape only. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="4.5" android:strokeLineCap="round"
+        android:pathData="M56.96,27.16 A27,27 0 0,1 74.15,36.03" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="8.5" android:strokeLineCap="round"
+        android:pathData="M77.58,40.85 A27,27 0 0,1 79.55,62.73" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="4.5" android:strokeLineCap="round"
+        android:pathData="M77.04,68.08 A27,27 0 0,1 70.09,75.68" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="8.5" android:strokeLineCap="round"
+        android:pathData="M64.98,78.67 A27,27 0 0,1 43.02,78.67" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="4.5" android:strokeLineCap="round"
+        android:pathData="M37.91,75.68 A27,27 0 0,1 30.96,68.08" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="8.5" android:strokeLineCap="round"
+        android:pathData="M28.45,62.73 A27,27 0 0,1 30.42,40.85" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="4.5" android:strokeLineCap="round"
+        android:pathData="M33.85,36.03 A27,27 0 0,1 51.04,27.16" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3.2" android:strokeLineCap="round"
+        android:pathData="M58.26,74.05 L60.97,86.77" />
+</vector>
