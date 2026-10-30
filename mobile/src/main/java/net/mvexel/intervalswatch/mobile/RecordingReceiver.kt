@@ -9,6 +9,7 @@ import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.google.android.gms.wearable.ChannelClient
@@ -89,6 +90,24 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
                 .build()
             WorkManager.getInstance(ctx).enqueueUniqueWork("upload-$name", ExistingWorkPolicy.KEEP, req)
+        }
+
+        /** Replacing cancels the work, so only do it when no upload of this file is running right now. */
+        fun shouldRetryNow(states: List<WorkInfo.State>) = states.none { it == WorkInfo.State.RUNNING }
+
+        /** After a login or key save: skip the backoff wait for every PENDING recording, leaving running uploads alone. */
+        fun retryPending(ctx: Context) {
+            val wm = WorkManager.getInstance(ctx)
+            RecordingLibrary.of(ctx).recent().filter { it.state == UploadState.PENDING }.forEach {
+                val states = wm.getWorkInfosForUniqueWork("upload-${it.fileName}").get().map { w -> w.state }
+                if (!shouldRetryNow(states)) return@forEach
+                val req = OneTimeWorkRequestBuilder<UploadWorker>()
+                    .setInputData(Data.Builder().putString(KEY_NAME, it.fileName).build())
+                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
+                    .build()
+                wm.enqueueUniqueWork("upload-${it.fileName}", ExistingWorkPolicy.REPLACE, req)
+            }
         }
     }
 }

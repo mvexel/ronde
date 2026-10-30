@@ -151,6 +151,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             store.save(s)
             SyncWorker.schedule(getApplication(), s.autoSync)
+            if (store.current().configured) withContext(Dispatchers.IO) { UploadWorker.retryPending(getApplication()) }
             _state.update { it.copy(settings = store.current(), editing = false, authExpired = false) }
             sync()
         }
