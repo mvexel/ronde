@@ -40,4 +40,11 @@ class FriendlyHttpErrorTest {
         messages.forEach { assertFalse(it, it.contains("{")) }
         assertFalse(messages[1].length > 200)
     }
+
+    @Test
+    fun oauthAuthErrorIsNotAboutApiKeys() {
+        val m = friendlyHttpError(401, "", AuthType.OAUTH)
+        assertFalse(m, m.contains("API key"))
+        assertEquals(m, friendlyHttpError(403, "", AuthType.OAUTH))
+    }
 }

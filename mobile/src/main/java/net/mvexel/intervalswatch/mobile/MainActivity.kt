@@ -152,7 +152,7 @@ internal fun MainScreen(st: UiState, onSync: () -> Unit, onEdit: () -> Unit, onS
 @Composable
 private fun SettingsForm(initial: Settings, onSave: (Settings) -> Unit) {
     var athlete by remember { mutableStateOf(initial.athleteId) }
-    var key by remember { mutableStateOf(initial.apiKey) }
+    var key by remember { mutableStateOf(initial.token) }
     var days by remember { mutableStateOf(initial.daysAhead.toString()) }
     var auto by remember { mutableStateOf(initial.autoSync) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -179,7 +179,7 @@ private fun SettingsForm(initial: Settings, onSave: (Settings) -> Unit) {
             Text("Sync in the background every 4 hours")
         }
         Button(onClick = {
-            onSave(Settings(athlete.ifBlank { "0" }, key, days.toIntOrNull()?.coerceIn(1, 28) ?: 7, auto))
+            onSave(Settings(athlete.ifBlank { "0" }, key, days.toIntOrNull()?.coerceIn(1, 28) ?: 7, auto, AuthType.API_KEY, initial.athleteName))
         }, enabled = key.isNotBlank()) { Text("Save & sync") }
     }
 }

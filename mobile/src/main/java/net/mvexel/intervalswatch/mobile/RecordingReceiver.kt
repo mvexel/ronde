@@ -91,9 +91,9 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
 class UploadFailure(val reason: String, val retryable: Boolean)
 
-/** @return null on success, else why not. The reason never contains the API key. */
+/** @return null on success, else why not. The reason never contains the credential. */
 suspend fun uploadRecordingFile(api: IntervalsApi, settings: Settings, file: File): UploadFailure? {
-    if (!settings.configured) return UploadFailure("No API key on the phone", retryable = true)
+    if (!settings.configured) return UploadFailure("Not logged in to intervals.icu on the phone", retryable = true)
     return runCatching {
         api.uploadActivity(
             settings, file.readBytes(), file.name,

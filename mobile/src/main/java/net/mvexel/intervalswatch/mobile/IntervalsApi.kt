@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.mvexel.intervalswatch.shared.IntervalsParser
 import net.mvexel.intervalswatch.shared.Workout
-import okhttp3.Credentials
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaType
@@ -23,7 +22,7 @@ class UploadHttpException(val code: Int, message: String) : IOException(message)
 
 private const val TAG = "IntervalsSync"
 
-/** Personal API key auth: HTTP Basic with username "API_KEY" (intervals.icu → Settings → Developer). */
+/** Auth: Bearer for an OAuth token, HTTP Basic with username "API_KEY" for a pasted key (see [Settings.authHeader]). */
 class IntervalsApi(
     private val baseUrl: String = "https://intervals.icu",
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -41,14 +40,14 @@ class IntervalsApi(
                 .build()
             val req = Request.Builder()
                 .url(url)
-                .header("Authorization", Credentials.basic("API_KEY", settings.apiKey))
+                .header("Authorization", settings.authHeader)
                 .header("Accept", "application/json")
                 .build()
             client.newCall(req).execute().use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     Log.w(TAG, "HTTP ${resp.code}")
-                    throw IOException(friendlyHttpError(resp.code, body))
+                    throw IOException(friendlyHttpError(resp.code, body, settings.authType))
                 }
                 val parsed = IntervalsParser.parse(body)
                 Log.i(TAG, "HTTP ${resp.code}, events ${parsed.received}, workouts kept ${parsed.workouts.size}")
@@ -56,6 +55,18 @@ class IntervalsApi(
                 parsed.workouts
             }
         }
+
+    /** Revokes the OAuth token on intervals.icu's side. Throws [IOException] on failure. */
+    suspend fun disconnect(settings: Settings) = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url("$baseUrl/api/v1/disconnect-app")
+            .header("Authorization", settings.authHeader)
+            .delete()
+            .build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("intervals.icu HTTP ${resp.code}")
+        }
+    }
 
     /**
      * Uploads a FIT file as a new activity. Returns normally for 200/201 (200 = duplicate, already
@@ -74,12 +85,12 @@ class IntervalsApi(
                 .build()
             val req = Request.Builder()
                 .url(url)
-                .header("Authorization", Credentials.basic("API_KEY", settings.apiKey))
+                .header("Authorization", settings.authHeader)
                 .post(body)
                 .build()
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
-                    throw UploadHttpException(resp.code, friendlyHttpError(resp.code, resp.body?.string().orEmpty()))
+                    throw UploadHttpException(resp.code, friendlyHttpError(resp.code, resp.body?.string().orEmpty(), settings.authType))
                 }
             }
         }
@@ -87,11 +98,14 @@ class IntervalsApi(
 
 /**
  * User-facing text for a failed intervals.icu call. Never returns the raw response body:
- * 401/403 mean the key was refused; other errors show the status code and, if the body
+ * 401/403 mean the credential was refused (worded for the [authType]); other errors show the status code and, if the body
  * carries one, its short "error" or "message" text.
  */
-internal fun friendlyHttpError(code: Int, body: String): String {
-    if (code == 401 || code == 403) return "API key rejected, check it in intervals.icu settings"
+internal fun friendlyHttpError(code: Int, body: String, authType: AuthType = AuthType.API_KEY): String {
+    if (code == 401 || code == 403) {
+        return if (authType == AuthType.OAUTH) "intervals.icu access expired or revoked, log in again"
+        else "API key rejected, check it in intervals.icu settings"
+    }
     val detail = Regex("\"(?:error|message)\"\\s*:\\s*\"([^\"]{1,100})\"")
         .find(body)?.groupValues?.get(1)
     return if (detail != null) "intervals.icu HTTP $code: $detail" else "intervals.icu HTTP $code"
