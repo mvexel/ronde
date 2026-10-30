@@ -38,6 +38,9 @@ class RecordingLibrary(private val dir: File, private val keep: Int = MAX_KEPT) 
 
     fun markFailed(fileName: String, reason: String) = stateFile(fileName).writeText("failed:" + reason.lineSequence().firstOrNull().orEmpty())
 
+    /** Back to pending (the user pressed Retry). */
+    fun clearState(fileName: String) { stateFile(fileName).delete() }
+
     fun state(fileName: String): UploadState {
         val s = runCatching { stateFile(fileName).readText() }.getOrNull() ?: return UploadState.PENDING
         return if (s.startsWith("failed")) UploadState.FAILED else UploadState.UPLOADED
@@ -84,11 +87,20 @@ class RecordingLibrary(private val dir: File, private val keep: Int = MAX_KEPT) 
     companion object {
         const val MAX_KEPT = 30
 
+        /** Bumped whenever an upload settles, so an open screen can refresh its list. */
+        val changes = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+        /** Deletes share copies left in the cache; call before making a new one. */
+        fun cleanExports(ctx: Context) {
+            File(ctx.cacheDir, "exports").listFiles()?.forEach { it.delete() }
+        }
+
         fun of(ctx: Context) = RecordingLibrary(File(ctx.filesDir, "recordings").apply { mkdirs() })
 
         /** An ACTION_SEND chooser for [fileName] as [format], via a FileProvider copy in the cache. */
         fun shareIntent(ctx: Context, fileName: String, format: ExportFormat): Intent {
             val lib = of(ctx)
+            cleanExports(ctx)
             val out = File(File(ctx.cacheDir, "exports").apply { mkdirs() }, lib.exportName(fileName, format))
             out.writeBytes(lib.export(fileName, format))
             val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", out)
