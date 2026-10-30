@@ -36,7 +36,8 @@ import kotlinx.coroutines.sync.withLock
 object RecordingStore {
     private const val TAG = "RecordingStore"
     private const val SEND_TIMEOUT_MS = 90_000L
-    private const val MIN_RECORDING_SEC = 10.0
+    /** Shorter active time (pauses excluded) is not worth an activity or a "phone not reachable" banner. */
+    internal const val MIN_SAVE_ACTIVE_SEC = 60.0
 
     private val _status = MutableStateFlow<SaveStatus?>(null)
     /** Outcome of the most recent recording, for the summary screen. */
@@ -75,6 +76,10 @@ object RecordingStore {
 
     private fun dir(ctx: Context) = File(ctx.filesDir, "recordings").apply { mkdirs() }
 
+    /** An end at 0:00 or a short test is neither saved nor sent. */
+    internal fun isWorthSaving(rec: Recording): Boolean =
+        rec.samples.isNotEmpty() && rec.timerSec >= MIN_SAVE_ACTIVE_SEC
+
     fun pending(ctx: Context): List<File> =
         dir(ctx).listFiles { f -> f.name.endsWith(".fit") }?.sortedBy { it.name }.orEmpty()
 
@@ -93,8 +98,7 @@ object RecordingStore {
     fun saveAsync(ctx: Context, rec: Recording) {
         val app = ctx.applicationContext
         restored = true
-        // An end at 0:00 or a few seconds in is not worth an activity (and a "phone not reachable" banner).
-        if (rec.samples.isEmpty() || rec.elapsedSec < MIN_RECORDING_SEC) {
+        if (!isWorthSaving(rec)) {
             set(app, SaveStatus.Failed("Nothing recorded"))
             return
         }
