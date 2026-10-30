@@ -102,7 +102,7 @@ object RecordingStore {
             set(app, SaveStatus.Failed("Nothing recorded"))
             return
         }
-        val name = RecordingProtocol.fileName(rec.startEpochMs, rec.name)
+        val name = RecordingProtocol.fileName(rec.startEpochMs, rec.name, rec.eventId)
         latest = name
         set(app, SaveStatus.Saving)
         scope.launch {
