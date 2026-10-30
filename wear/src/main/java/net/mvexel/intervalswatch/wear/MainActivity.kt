@@ -13,7 +13,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
+import net.mvexel.intervalswatch.shared.PaceUnit
 import net.mvexel.intervalswatch.shared.Sport
+import kotlin.math.roundToInt
 import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.withSlot
 import net.mvexel.intervalswatch.shared.withSport
@@ -338,12 +340,18 @@ private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onScreens: (() ->
         WorkoutSteps(w, onPickPower, onScreens) { listing = false }
         return
     }
-    DetailBezel(w, onStart = { launcher.launch(perms) }, onSteps = { listing = true })
+    // Warm up GPS and HR while this screen is open (ux D1); a Start press hands the sensors to the service.
+    val probe = remember { ReadinessProbe(ctx.applicationContext) }
+    var started by remember { mutableStateOf(false) }
+    val ready by probe.state.collectAsStateWithLifecycle()
+    LaunchedEffect(w.id) { probe.start(w) }
+    DisposableEffect(Unit) { onDispose { kotlinx.coroutines.GlobalScope.launch { probe.stop(started) } } }
+    DetailBezel(w, ready = ready, onStart = { started = true; launcher.launch(perms) }, onSteps = { listing = true })
 }
 
 /** The workout ring is the bezel; the crown scrubs its highlight and the line under Start describes that step (ux D1, D3). */
 @Composable
-internal fun DetailBezel(w: Workout, selected: Int = 0, onStart: () -> Unit, onSteps: () -> Unit) {
+internal fun DetailBezel(w: Workout, selected: Int = 0, ready: Readiness = Readiness(), onStart: () -> Unit, onSteps: () -> Unit) {
     var index by remember { mutableStateOf(selected.coerceIn(0, maxOf(0, w.steps.size - 1))) }
     val pager = remember { CrownPager(thresholdDetents = 1f) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -363,13 +371,15 @@ internal fun DetailBezel(w: Workout, selected: Int = 0, onStart: () -> Unit, onS
         CurvedLayout(Modifier.padding(11.dp), anchor = 270f) {
             curvedText(w.name.uppercase(), color = Rb.ink, fontSize = RbType.edge, fontWeight = FontWeight.SemiBold)
         }
-        // GPS only matters outdoors; the heart rate sensor is always wanted.
+        // Readiness row (ux D1): grey = searching, green = ready. Start stays enabled. GPS only matters outdoors.
         CurvedLayout(Modifier.padding(11.dp), anchor = 90f, angularDirection = CurvedDirection.Angular.CounterClockwise) {
-            curvedText(
-                (if (w.indoor) "indoor" else "GPS") + " · HR",
-                color = Rb.ink3, fontSize = RbType.edge, fontWeight = FontWeight.Medium,
-                angularDirection = CurvedDirection.Angular.CounterClockwise,
-            )
+            val dir = CurvedDirection.Angular.CounterClockwise
+            if (!w.indoor) {
+                curvedText("GPS ", color = Rb.ink3, fontSize = RbType.edge, fontWeight = FontWeight.Medium, angularDirection = dir)
+                curvedText("●  ", color = if (ready.gps) Rb.recovery else Rb.ink3, fontSize = RbType.edge, angularDirection = dir)
+            }
+            curvedText("HR ", color = Rb.ink3, fontSize = RbType.edge, fontWeight = FontWeight.Medium, angularDirection = dir)
+            curvedText("●", color = if (ready.hr) Rb.recovery else Rb.ink3, fontSize = RbType.edge, angularDirection = dir)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Box(
@@ -598,10 +608,10 @@ internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
         WorkoutRing(w.steps, RingVariant.Result(s.stepIndex, s.onTarget), 9.dp)
         Column(Modifier.padding(horizontal = 34.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(1.dp)) {
             when (save) {
-                SaveStatus.Saving -> Text("Saving…", style = RbType.label, color = Rb.ink2)
+                SaveStatus.Saving -> Text("⟳ Saving…", style = RbType.label, color = Rb.ink2)
                 SaveStatus.Saved -> Text("✓ Saved", style = RbType.body, color = Rb.ink, fontWeight = FontWeight.Bold)
                 is SaveStatus.Failed -> Text(
-                    save.reason, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 3,
+                    "! ${save.reason}".takeUnless { save.reason == "Nothing recorded" } ?: save.reason, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 3,
                     color = if (save.reason == "Nothing recorded") Rb.ink3 else Rb.signal,
                 )
                 null -> Unit
@@ -609,7 +619,7 @@ internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
             if (work.isNotEmpty()) Text("$hits of ${work.size} reps on target", style = RbType.label, color = Rb.work, maxLines = 1)
             Text(
                 listOfNotNull(Format.duration(s.activeSec), s.distanceM.takeIf { it > 0 }?.let { Format.distance(it, w.paceUnit) }).joinToString(" · "),
-                style = RbType.partner, color = Rb.ink, maxLines = 1,
+                style = RbType.partner, color = Rb.ink, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
             )
             summaryDetail(s)?.let { (hr, pace) ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -626,14 +636,15 @@ internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
     }
 }
 
-/** Average heart rate and average pace (or speed on a ride) of the whole session; null parts when there's no data. */
-private fun summaryDetail(s: Session): Pair<String?, String?>? {
+/** Average heart rate and the whole-session average pace (run, walk), or speed and power (ride); null parts when there's no data. */
+internal fun summaryDetail(s: Session): Pair<String?, String?>? {
     val hr = s.avgHeartRate?.let { "%.0f".format(it) }
-    val pace = if (s.distanceM > 0 && s.activeSec > 0) {
-        val v = s.distanceM / s.activeSec
-        "${Format.pace(v, s.workout.paceUnit)} ${Format.paceSuffix(s.workout.paceUnit)}"
-    } else null
-    return if (hr == null && pace == null) null else hr to pace
+    val v = if (s.distanceM > 0 && s.activeSec > 0) s.distanceM / s.activeSec else null
+    val second = if (s.workout.sport == Sport.RIDE) {
+        val speed = v?.let { if (s.workout.paceUnit == PaceUnit.KM) "%.1f km/h".format(it * 3.6) else "%.1f mph".format(it * 3600 / 1609.344) }
+        listOfNotNull(s.avgPower?.let { "${it.roundToInt()} W" }, speed).joinToString(" · ").ifEmpty { null }
+    } else v?.let { "${Format.pace(it, s.workout.paceUnit)} ${Format.paceSuffix(s.workout.paceUnit)}" }
+    return if (hr == null && second == null) null else hr to second
 }
 
 /** Minimal list DSL so the same screen code renders as a ScalingLazyColumn on the watch and as a

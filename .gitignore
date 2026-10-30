@@ -9,3 +9,4 @@ captures/
 
 # Paparazzi snapshots are recorded by CI, not kept in the repo
 wear/src/test/snapshots/
+mobile/src/test/snapshots/
