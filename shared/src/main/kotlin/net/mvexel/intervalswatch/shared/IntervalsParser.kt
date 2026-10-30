@@ -27,19 +27,32 @@ object IntervalsParser {
     /** An untexted step in a repeat block whose target is below this share of the block's hardest one is a recovery. */
     private const val EASY_RATIO = 0.85
 
-    fun parseEvents(body: String): List<Workout> =
-        json.decodeFromString<List<EventDto>>(body)
-            .filter { it.category == null || it.category == "WORKOUT" }
-            .mapNotNull(::toWorkout)
-            .sortedBy { it.startLocal }
+    /** An event that did not become a workout, and why. */
+    data class Dropped(val id: Long, val type: String?, val reason: String)
+
+    data class Parsed(val received: Int, val workouts: List<Workout>, val dropped: List<Dropped>)
+
+    fun parseEvents(body: String): List<Workout> = parse(body).workouts
+
+    fun parse(body: String): Parsed {
+        val events = json.decodeFromString<List<EventDto>>(body)
+        val dropped = mutableListOf<Dropped>()
+        val workouts = events.mapNotNull { e ->
+            if (e.category != null && e.category != "WORKOUT") {
+                dropped += Dropped(e.id, e.type, "category ${e.category}")
+                null
+            } else {
+                toWorkout(e).also { if (it == null) dropped += Dropped(e.id, e.type, "no steps") }
+            }
+        }.sortedBy { it.startLocal }
+        return Parsed(events.size, workouts, dropped)
+    }
 
     fun toWorkout(e: EventDto): Workout? {
-        val doc = e.workoutDoc ?: return null
-        val rawSteps = doc.steps.orEmpty()
-        if (rawSteps.isEmpty()) return null
+        val doc = e.workoutDoc ?: return plainWorkout(e)
+        val steps = flatten(doc.steps.orEmpty(), doc, prefix = null)
+        if (steps.isEmpty()) return plainWorkout(e)
         val sport = sportOf(e.type)
-        val steps = flatten(rawSteps, doc, prefix = null)
-        if (steps.isEmpty()) return null
         return Workout(
             id = e.id,
             name = e.name?.takeIf { it.isNotBlank() } ?: "Workout",
@@ -51,6 +64,31 @@ object IntervalsParser {
             totalDurationSec = doc.duration,
             totalDistanceM = doc.distance?.takeIf { it > 0 },
             paceUnit = if (doc.paceUnits?.contains("MILE") == true) PaceUnit.MILE else PaceUnit.KM,
+        )
+    }
+
+    /** A planned event without structured steps: one step of its duration or distance, no target; neither means an open step. */
+    private fun plainWorkout(e: EventDto): Workout {
+        val distance = (e.workoutDoc?.distance ?: e.distance)?.takeIf { it > 0 }
+        val duration = (e.workoutDoc?.duration ?: e.movingTime ?: e.elapsedTime)?.takeIf { it > 0 }
+        val name = e.name?.takeIf { it.isNotBlank() } ?: "Workout"
+        return Workout(
+            id = e.id,
+            name = name,
+            sport = sportOf(e.type),
+            indoor = e.type?.startsWith("Virtual") == true || e.indoor == true,
+            startLocal = e.startDateLocal ?: "",
+            description = e.description,
+            steps = listOf(
+                WorkoutStep(
+                    label = name,
+                    kind = StepKind.ACTIVE,
+                    durationSec = if (distance != null) null else duration,
+                    distanceM = distance,
+                ),
+            ),
+            totalDurationSec = duration,
+            totalDistanceM = distance,
         )
     }
 
@@ -229,6 +267,9 @@ data class EventDto(
     val category: String? = null,
     val indoor: Boolean? = null,
     val description: String? = null,
+    val distance: Double? = null,
+    @SerialName("moving_time") val movingTime: Int? = null,
+    @SerialName("elapsed_time") val elapsedTime: Int? = null,
     @SerialName("start_date_local") val startDateLocal: String? = null,
     @SerialName("workout_doc") val workoutDoc: WorkoutDocDto? = null,
 )
