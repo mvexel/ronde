@@ -316,7 +316,7 @@ internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogg
                             Column {
                                 val unit = Format.unitLabel(t.metric, w.paceUnit, w.sport)
                                 Text(if (choice != null) "${choice.heroView.label} $unit" else unit, fontSize = 12.sp, color = TargetColor)
-                                cue(t.metric, cmp)?.let { Text(it, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold) }
+                                cue(cmp)?.let { Text(it, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold) }
                             }
                         } else {
                             Text(noValueText(s, t.metric), fontSize = 22.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
@@ -379,11 +379,11 @@ private const val NEXT_NEAR_M = 100.0
 internal fun isNearEnd(p: StepProgress): Boolean =
     (p.remainingSec?.let { it <= NEXT_NEAR_SEC } ?: false) || (p.remainingM?.let { it <= NEXT_NEAR_M } ?: false)
 
-/** Colour-independent cue for the live value: what to do (-1 below target, 1 above, 0/null nothing). */
-internal fun cue(metric: Metric, cmp: Int?): String? = when {
+/** Colour-independent cue: what to do, never what the number did (-1 below target -> push, 1 above -> ease). */
+internal fun cue(cmp: Int?): String? = when {
     cmp == null || cmp == 0 -> null
-    metric == Metric.PACE -> if (cmp < 0) "▲ faster" else "▼ slower"
-    else -> if (cmp < 0) "▲ up" else "▼ ease"
+    cmp < 0 -> "▲ push"
+    else -> "▼ ease"
 }
 
 /** Why there is no live value yet, instead of "--". */

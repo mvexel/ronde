@@ -15,12 +15,10 @@ import org.junit.Test
 
 class GlanceTest {
     @Test fun cueWords() {
-        assertEquals("▲ faster", cue(Metric.PACE, -1))
-        assertEquals("▼ slower", cue(Metric.PACE, 1))
-        assertEquals("▲ up", cue(Metric.POWER, -1))
-        assertEquals("▼ ease", cue(Metric.HEART_RATE, 1))
-        assertNull(cue(Metric.POWER, 0))
-        assertNull(cue(Metric.POWER, null))
+        assertEquals("▲ push", cue(-1))
+        assertEquals("▼ ease", cue(1))
+        assertNull(cue(0))
+        assertNull(cue(null))
     }
 
     @Test fun nextOnlyNearEnd() {
