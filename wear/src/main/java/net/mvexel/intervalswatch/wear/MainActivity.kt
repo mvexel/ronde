@@ -129,13 +129,17 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, bur
             ambient && (s == null || s.ended) -> AmbientIdle()
             s != null && s.ended -> Summary(s, save) { ExerciseService.dismiss(); selected = null }
             s != null && ambient -> {
+                val (paceView, _) = rememberPaceView(LocalContext.current, s.workout.sport)
                 // Freeze the session between ambient updates so the dimmed screen isn't redrawn twice a second.
                 // A step change or pause is shown at once; that is a single redraw.
                 val frozen = remember(ambientTick, s.stepIndex, s.paused) { s }
-                AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0)
+                AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0, paceView = paceView)
             }
 
-            s != null -> ActiveWorkout(s)
+            s != null -> {
+                val (paceView, togglePace) = rememberPaceView(LocalContext.current, s.workout.sport)
+                ActiveWorkout(s, paceView, togglePace)
+            }
             selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
             selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onBack = { selected = null })
             else -> WorkoutList(bundle?.workouts.orEmpty(), save) { selected = it }
@@ -254,7 +258,7 @@ private fun StepRow(w: Workout, s: WorkoutStep) {
 }
 
 @Composable
-internal fun ActiveWorkout(s: Session) {
+internal fun ActiveWorkout(s: Session, paceView: PaceView = PaceView.NOW, onTogglePace: () -> Unit = {}) {
     val ctx = LocalContext.current
     val w = s.workout
     val step = s.step
@@ -298,19 +302,28 @@ internal fun ActiveWorkout(s: Session) {
                         -1 -> Color(0xFF42A5F5)
                         else -> Color(0xFFEF5350)
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (live != null) {
-                            Text(Format.value(t.metric, live, w.paceUnit), fontSize = 28.sp, color = color, fontWeight = FontWeight.Bold)
+                    val isPace = t.metric == Metric.PACE
+                    val choice = if (isPace) paceChoice(live, s.stepAvgSpeed, paceView) else null
+                    val heroValue = if (choice != null) choice.hero else live
+                    // Colour and cue stay on live pace; only the number and its label follow the toggle.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = if (isPace && !s.paused) Modifier.paceToggleGesture(onTogglePace) else Modifier,
+                    ) {
+                        if (heroValue != null) {
+                            Text(Format.value(t.metric, heroValue, w.paceUnit), fontSize = 28.sp, color = color, fontWeight = FontWeight.Bold)
                             Column {
-                                Text(Format.unitLabel(t.metric, w.paceUnit, w.sport), fontSize = 12.sp, color = TargetColor)
-                                cue(t.metric, cmp)?.let { Text(it, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold) }
+                                val unit = Format.unitLabel(t.metric, w.paceUnit, w.sport)
+                                Text(if (choice != null) "${choice.heroView.label} $unit" else unit, fontSize = 12.sp, color = TargetColor)
+                                cue(cmp)?.let { Text(it, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold) }
                             }
                         } else {
                             Text(noValueText(s, t.metric), fontSize = 22.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
                         }
                     }
-                    if (t.metric == Metric.PACE && !nextNear) s.stepAvgSpeed?.let {
-                        Text("avg ${Format.pace(it, w.paceUnit)} ${Format.paceSuffix(w.paceUnit)}", fontSize = 13.sp, color = TargetColor, maxLines = 1)
+                    if (choice != null && !nextNear) choice.other?.let {
+                        Text("${choice.otherView.label} ${Format.pace(it, w.paceUnit)} ${Format.paceSuffix(w.paceUnit)}", fontSize = 13.sp, color = TargetColor, maxLines = 1)
                     }
                     if (nextNear && s.next != null) NextBig(s.next!!, w)
                     else Text(Format.target(t, p.fraction, w.paceUnit, w.sport), fontSize = 18.sp, color = TargetColor, maxLines = 1)
@@ -366,11 +379,11 @@ private const val NEXT_NEAR_M = 100.0
 internal fun isNearEnd(p: StepProgress): Boolean =
     (p.remainingSec?.let { it <= NEXT_NEAR_SEC } ?: false) || (p.remainingM?.let { it <= NEXT_NEAR_M } ?: false)
 
-/** Colour-independent cue for the live value: what to do (-1 below target, 1 above, 0/null nothing). */
-internal fun cue(metric: Metric, cmp: Int?): String? = when {
+/** Colour-independent cue: what to do, never what the number did (-1 below target -> push, 1 above -> ease). */
+internal fun cue(cmp: Int?): String? = when {
     cmp == null || cmp == 0 -> null
-    metric == Metric.PACE -> if (cmp < 0) "▲ faster" else "▼ slower"
-    else -> if (cmp < 0) "▲ up" else "▼ ease"
+    cmp < 0 -> "▲ push"
+    else -> "▼ ease"
 }
 
 /** Why there is no live value yet, instead of "--". */
@@ -455,7 +468,7 @@ internal fun AmbientIdle() {
 
 /** Dimmed, low-power view: current step and time left, black background, no buttons. */
 @Composable
-internal fun AmbientWorkout(s: Session, shift: Int = 0) {
+internal fun AmbientWorkout(s: Session, shift: Int = 0, paceView: PaceView = PaceView.NOW) {
     val w = s.workout
     val step = s.step
     val p = s.progress
@@ -472,6 +485,10 @@ internal fun AmbientWorkout(s: Session, shift: Int = 0) {
                 // is only redrawn about once a minute (a frozen m:ss would look like a hang).
                 step.primaryTarget?.let {
                     Text(Format.target(it, p.fraction, w.paceUnit, w.sport), color = AmbientGray, fontSize = 30.sp, textAlign = TextAlign.Center)
+                }
+                step.primaryTarget?.takeIf { it.metric == Metric.PACE }?.let {
+                    val c = paceChoice(s.live(Metric.PACE), s.stepAvgSpeed, paceView)
+                    c.hero?.let { v -> Text("${c.heroView.label} ${Format.pace(v, w.paceUnit)} ${Format.paceSuffix(w.paceUnit)}", color = AmbientGray, fontSize = 16.sp) }
                 }
                 val left = when {
                     p.remainingSec != null -> "${kotlin.math.ceil(p.remainingSec!! / 60).toInt()} min left"

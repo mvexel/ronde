@@ -71,6 +71,14 @@ class WearScreenshotTest {
         ActiveWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8))
     }
 
+    @Test fun runTooFastAvgHero() = snap {
+        ActiveWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8), PaceView.AVG)
+    }
+
+    @Test fun ambientRunAvg() = snap {
+        AmbientWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8), paceView = PaceView.AVG)
+    }
+
     @Test fun runDistanceStep() = snap {
         ActiveWorkout(session(Samples.run, 0, null, remainingM = 1240.0, hr = 138.0, speed = 3.02))
     }

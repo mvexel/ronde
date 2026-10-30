@@ -15,12 +15,10 @@ import org.junit.Test
 
 class GlanceTest {
     @Test fun cueWords() {
-        assertEquals("▲ faster", cue(Metric.PACE, -1))
-        assertEquals("▼ slower", cue(Metric.PACE, 1))
-        assertEquals("▲ up", cue(Metric.POWER, -1))
-        assertEquals("▼ ease", cue(Metric.HEART_RATE, 1))
-        assertNull(cue(Metric.POWER, 0))
-        assertNull(cue(Metric.POWER, null))
+        assertEquals("▲ push", cue(-1))
+        assertEquals("▼ ease", cue(1))
+        assertNull(cue(0))
+        assertNull(cue(null))
     }
 
     @Test fun nextOnlyNearEnd() {
@@ -54,5 +52,15 @@ class GlanceTest {
         assertEquals(-1, step.primaryTarget!!.compare(s.live(Metric.CADENCE)!!, 0.0))
         assertNull(s.copy(cadence = null).live(Metric.CADENCE))
         assertEquals("170–180 spm", net.mvexel.intervalswatch.shared.Format.target(step.primaryTarget!!, 0.0, w.paceUnit, w.sport))
+    }
+
+    @Test fun paceChoiceSwapsHeroAndOther() {
+        val avg = paceChoice(3.9, 3.8, PaceView.AVG)
+        assertEquals(3.8, avg.hero!!, 1e-9); assertEquals(PaceView.AVG, avg.heroView)
+        assertEquals(3.9, avg.other!!, 1e-9)
+        val now = paceChoice(3.9, 3.8, PaceView.NOW)
+        assertEquals(3.9, now.hero!!, 1e-9); assertEquals(PaceView.AVG, now.otherView)
+        // No average yet: fall back to live even when avg is chosen.
+        assertEquals(PaceView.NOW, paceChoice(3.9, null, PaceView.AVG).heroView)
     }
 }
