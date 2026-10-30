@@ -300,13 +300,14 @@ private fun Flank(s: Session, field: Field, clock: String) {
     }
 }
 
-/** Pause (filled ink) and Lap/Skip (surface), 52 dp, 16 dp apart, with 11 sp captions. */
+/** Pause (filled ink) and Lap/Skip (surface; on a lap-ended step Lap is the filled one), 52 dp, 16 dp apart, with 11 sp captions. */
 @Composable
 private fun Controls(showPause: Boolean, hasNext: Boolean, lapLabel: String) {
     val ctx = LocalContext.current
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-        if (showPause) RoundButton(onClick = { ExerciseService.pause(ctx) }, caption = "pause") { Text("❚❚") }
-        if (hasNext) RoundButton(onClick = { ExerciseService.lap(ctx) }, secondary = true, caption = if (lapLabel == "Lap") "lap" else "next step") {
+        val lapIsPlan = lapLabel == "Lap"
+        if (showPause) RoundButton(onClick = { ExerciseService.pause(ctx) }, secondary = lapIsPlan, caption = "pause") { Text("❚❚") }
+        if (hasNext) RoundButton(onClick = { ExerciseService.lap(ctx) }, secondary = !lapIsPlan, caption = if (lapIsPlan) "lap" else "next step") {
             Text(lapLabel, fontSize = 14.sp, maxLines = 1)
         }
     }

@@ -64,7 +64,7 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
         stepAvgSpeed = stepAvg,
     )
 
-    @Test fun list() = snap { WorkoutList(Samples.workouts) {} }
+    @Test fun list() = snap { WorkoutList(Samples.workouts, syncedAtMillis = 0L, nowMillis = 2 * 3_600_000L) {} }
 
     @Test fun listWithOpenRow() = snap { WorkoutList(Samples.workouts.take(1)) {} }
 

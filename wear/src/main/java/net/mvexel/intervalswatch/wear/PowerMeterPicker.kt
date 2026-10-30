@@ -17,10 +17,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
-import androidx.wear.compose.material.CompactButton
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 
@@ -68,9 +66,9 @@ internal fun PowerMeterPicker(
         if (selectedAddress != null && devices.none { it.address == selectedAddress }) {
             item {
                 Chip(
-                    onClick = onForget,
+                    onClick = {},
                     label = { Text(selectedName ?: selectedAddress, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    secondaryLabel = { Text("Selected · tap to forget") },
+                    secondaryLabel = { Text("Selected · not in range") },
                     colors = ChipDefaults.primaryChipColors(),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -79,12 +77,22 @@ internal fun PowerMeterPicker(
         items(devices, key = { it.address }) { d ->
             val chosen = d.address == selectedAddress
             Chip(
-                onClick = { if (chosen) onForget() else onPick(d) },
+                onClick = { if (!chosen) onPick(d) },
                 label = { Text(d.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                secondaryLabel = if (chosen) ({ Text("Selected · tap to forget") }) else null,
+                secondaryLabel = if (chosen) ({ Text("Selected") }) else null,
                 colors = if (chosen) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+        if (selectedAddress != null) {
+            item {
+                Chip(
+                    onClick = onForget,
+                    label = { Text("Forget") },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
         item {
             Text(
@@ -94,10 +102,12 @@ internal fun PowerMeterPicker(
             )
         }
         if (!scanning) {
-            item { CompactButton(onClick = onRescan) { Text("↻") } }
+            item {
+                Chip(onClick = onRescan, label = { Text("Scan again") }, colors = ChipDefaults.secondaryChipColors(), modifier = Modifier.fillMaxWidth())
+            }
         }
         item {
-            CompactButton(onClick = onBack, colors = ButtonDefaults.secondaryButtonColors()) { Text("←") }
+            Chip(onClick = onBack, label = { Text("Done") }, colors = ChipDefaults.primaryChipColors(), modifier = Modifier.fillMaxWidth())
         }
     }
 }

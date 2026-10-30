@@ -207,7 +207,7 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
             selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
             selected != null && selected!!.isOpen -> OpenStart(selected!!, onBack = { selected = null })
             selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onScreens = { editSport = selected!!.sport }, onBack = { selected = null })
-            else -> WorkoutList(bundle?.workouts.orEmpty().map { it.withUnits(settings) }, save, phoneLoggedIn, onSettings = { settingsOpen = true }) { selected = it }
+            else -> WorkoutList(bundle?.workouts.orEmpty().map { it.withUnits(settings) }, save, phoneLoggedIn, syncedAtMillis = bundle?.syncedAtMillis, onSettings = { settingsOpen = true }) { selected = it }
         }
     }
     if (s != null) content()
@@ -228,7 +228,7 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
 }
 
 @Composable
-internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phoneLoggedIn: Boolean = true, onSettings: (() -> Unit)? = null, clock: String = clockNow(), today: java.time.LocalDate = java.time.LocalDate.now(), onPick: (Workout) -> Unit) {
+internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phoneLoggedIn: Boolean = true, syncedAtMillis: Long? = null, nowMillis: Long = System.currentTimeMillis(), onSettings: (() -> Unit)? = null, clock: String = clockNow(), today: java.time.LocalDate = java.time.LocalDate.now(), onPick: (Workout) -> Unit) {
     Box(Modifier.fillMaxSize()) {
         WatchList {
             item("open") {
@@ -270,7 +270,7 @@ internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phon
                     icon = { WorkoutRing(w.steps, RingVariant.Plain, 4.dp, Modifier.size(28.dp)) },
                     label = { Text(w.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     secondaryLabel = {
-                        val day = workoutDay(w, today)
+                        val day = workoutWhen(w, today)
                         val rest = listOfNotNull(
                             w.sport.name.lowercase().replaceFirstChar { it.uppercase() } + if (w.indoor) " in" else "",
                             w.totalDurationSec?.let { Format.duration(it.toDouble()) },
@@ -287,6 +287,14 @@ internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phon
                     border = if (isToday) ChipDefaults.outlinedChipBorder(Rb.work) else ChipDefaults.chipBorder(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            if (syncedAtMillis != null) {
+                item("synced") {
+                    Text(
+                        syncedAgo(syncedAtMillis, nowMillis), style = RbType.label, textAlign = TextAlign.Center,
+                        color = if (syncStale(syncedAtMillis, nowMillis)) Rb.work else Rb.ink2,
+                    )
+                }
             }
             if (onSettings != null) {
                 item("settings") {
