@@ -47,6 +47,7 @@ import net.mvexel.intervalswatch.shared.Metric
 import net.mvexel.intervalswatch.shared.RecSample
 import net.mvexel.intervalswatch.shared.RecordingBuilder
 import net.mvexel.intervalswatch.shared.Sport
+import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.StepProgress
 import net.mvexel.intervalswatch.shared.Sync
 import net.mvexel.intervalswatch.shared.Workout
@@ -155,6 +156,9 @@ class ExerciseService : LifecycleService() {
     private var outOfRangeSinceSec: Double? = null
     private var lastRangeAlertSec = -1000.0
     private var countdownStep = -1
+    private var hundredStep = -1
+    private var gpsWasReady = false
+    private var gpsEverLost = false
 
     // Screen-off timing: the CPU may doze between Health Services batches, so hold a partial wake lock
     // while ACTIVE, and ask Health Services to call us back at each step boundary and at T-3.
@@ -180,7 +184,7 @@ class ExerciseService : LifecycleService() {
             ACTION_LAP -> {
                 engine?.lap(activeSec(), distance())
                 lifecycleScope.launch { runCatching { client.markLapAsync().await() } }
-                buzzStepChange()
+                buzzStepChange(engine?.current?.kind)
                 publish()
             }
             ACTION_END -> lifecycleScope.launch { finish() }
@@ -191,6 +195,7 @@ class ExerciseService : LifecycleService() {
     private suspend fun begin(workout: Workout) {
         ended = false
         finishing = false
+        countdownStep = -1; hundredStep = -1; gpsWasReady = false; gpsEverLost = false; lastPmStatus = null
         RecordingStore.reset(applicationContext)
         val type = when (workout.sport) {
             Sport.RUN -> if (workout.indoor) ExerciseType.RUNNING_TREADMILL else ExerciseType.RUNNING
@@ -295,6 +300,10 @@ class ExerciseService : LifecycleService() {
             if (availability is LocationAvailability) {
                 gpsReady = availability == LocationAvailability.ACQUIRED_TETHERED ||
                     availability == LocationAvailability.ACQUIRED_UNTETHERED
+                if (gpsWasReady && !gpsReady) sensorBuzz(true)
+                else if (!gpsWasReady && gpsReady && gpsEverLost) sensorBuzz(false)
+                if (gpsWasReady && !gpsReady) gpsEverLost = true
+                gpsWasReady = gpsReady
             }
         }
     }
@@ -331,7 +340,7 @@ class ExerciseService : LifecycleService() {
         if (e.update(t, d) > 0) {
             outOfRangeSinceSec = null
             Log.i(TAG, "LATENCY step ${e.index} late=${"%.2f".format(e.progress(t, d).elapsedSec)}s")
-            if (e.finished && before < e.workout.steps.size) buzzDone() else buzzStepChange()
+            if (e.finished && before < e.workout.steps.size) buzzDone() else buzzStepChange(e.current?.kind)
         }
         // With a live power meter there may be no HS point for this second (indoor, HR 0), and the
         // ticker is the only clock: sample here too. The builder merges samples of the same second.
@@ -340,6 +349,7 @@ class ExerciseService : LifecycleService() {
         syncGoals(e)
         updateOngoing(e, e.progress(t, d).remainingSec)
         record(e, t, d)
+        watchPowerMeter()
         countdown(e, t, d)
         rangeAlert(e, t, d)
         publish()
@@ -413,11 +423,42 @@ class ExerciseService : LifecycleService() {
 
     private fun countdown(e: WorkoutEngine, t: Double, d: Double) {
         val p = e.progress(t, d)
-        val rem = p.remainingSec ?: return
-        if (rem in 0.1..3.0 && countdownStep != e.index) {
-            countdownStep = e.index
-            vibrate(longArrayOf(0, 60, 940, 60, 940, 60))
+        val rem = p.remainingSec
+        if (rem != null) {
+            if (rem in 0.1..3.0 && countdownStep != e.index) {
+                countdownStep = e.index
+                vibrate(Haptics.COUNTDOWN)
+            }
+            return
         }
+        // Distance step: one pulse at 100 m to go, the 3-pulse pattern about 3 s out at current speed.
+        val remM = p.remainingM ?: return
+        if (remM <= 0.0) return
+        val total = e.current?.distanceM ?: return
+        if (remM <= 100.0 && total > 200.0 && hundredStep != e.index) {
+            hundredStep = e.index
+            vibrate(Haptics.DISTANCE_100)
+        }
+        val threeSec = Haptics.countdownMeters(speed) ?: return
+        if (remM <= threeSec && countdownStep != e.index) {
+            countdownStep = e.index
+            vibrate(Haptics.COUNTDOWN)
+        }
+    }
+
+    /** Buzz when a sensor drops out or comes back; [lost] true on the way down. */
+    private fun sensorBuzz(lost: Boolean) {
+        if (state != ExerciseState.ACTIVE) return
+        vibrate(if (lost) Haptics.SENSOR_LOST else Haptics.SENSOR_BACK)
+    }
+
+    private var lastPmStatus: PowerMeter.Status? = null
+    private fun watchPowerMeter() {
+        val now = powerMeter?.status?.value ?: return
+        val was = lastPmStatus
+        lastPmStatus = now
+        if (was == PowerMeter.Status.CONNECTED && now == PowerMeter.Status.DISCONNECTED) sensorBuzz(true)
+        else if (was == PowerMeter.Status.DISCONNECTED && now == PowerMeter.Status.CONNECTED) sensorBuzz(false)
     }
 
     private fun rangeAlert(e: WorkoutEngine, t: Double, d: Double) {
@@ -431,8 +472,7 @@ class ExerciseService : LifecycleService() {
         val since = outOfRangeSinceSec ?: t.also { outOfRangeSinceSec = it }
         if (t - since >= 10 && t - lastRangeAlertSec >= 30) {
             lastRangeAlertSec = t
-            // Too low: two short. Too high: one long.
-            vibrate(if (cmp < 0) longArrayOf(0, 120, 120, 120) else longArrayOf(0, 450))
+            vibrate(Haptics.rangeAlert(cmp))
         }
     }
 
@@ -536,8 +576,8 @@ class ExerciseService : LifecycleService() {
     private fun hasPermission(p: String) =
         ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
 
-    private fun buzzStepChange() = vibrate(longArrayOf(0, 400, 150, 150))
-    private fun buzzDone() = vibrate(longArrayOf(0, 300, 150, 300, 150, 300))
+    private fun buzzStepChange(into: StepKind?) = vibrate(Haptics.stepChange(into))
+    private fun buzzDone() = vibrate(Haptics.DONE)
 
     private fun vibrate(pattern: LongArray) {
         val v = getSystemService(VibratorManager::class.java)?.defaultVibrator ?: return
