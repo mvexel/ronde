@@ -260,10 +260,13 @@ internal fun ActiveWorkout(s: Session) {
     val p = s.progress
 
     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        if (step != null) {
+            ProgressArc(p.fraction.toFloat(), if (s.paused) Color.Gray else kindColor(step.kind))
+        }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(0.dp),
-            modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 26.dp, vertical = 12.dp),
         ) {
             if (step == null) {
                 Text("Workout done", style = MaterialTheme.typography.title2)
@@ -282,7 +285,7 @@ internal fun ActiveWorkout(s: Session) {
                     else -> "+" + Format.duration(p.elapsedSec)
                 }
                 Column(Modifier.alpha(if (s.paused) 0.5f else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(left, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                Text(left, fontSize = 30.sp, fontWeight = FontWeight.Bold)
                 val nextNear = !s.paused && isNearEnd(p)
 
                 step.primaryTarget?.let { t ->
@@ -304,6 +307,9 @@ internal fun ActiveWorkout(s: Session) {
                         } else {
                             Text(noValueText(s, t.metric), fontSize = 22.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
                         }
+                    }
+                    if (t.metric == Metric.PACE && !nextNear) s.stepAvgSpeed?.let {
+                        Text("avg ${Format.pace(it, w.paceUnit)} ${Format.paceSuffix(w.paceUnit)}", fontSize = 13.sp, color = TargetColor, maxLines = 1)
                     }
                     if (nextNear && s.next != null) NextBig(s.next!!, w)
                     else Text(Format.target(t, p.fraction, w.paceUnit), fontSize = 18.sp, color = TargetColor, maxLines = 1)
@@ -333,6 +339,19 @@ internal fun ActiveWorkout(s: Session) {
             }
 
         }
+    }
+}
+
+/** Full ring on the bezel: dim track plus a sweep for step progress, in the step's kind colour. */
+@Composable
+internal fun ProgressArc(fraction: Float, color: Color) {
+    Canvas(Modifier.fillMaxSize()) {
+        val w = 5.dp.toPx()
+        val inset = w / 2
+        val arcSize = Size(size.width - w, size.height - w)
+        val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+        drawArc(color.copy(alpha = 0.2f), 0f, 360f, false, topLeft, arcSize, style = Stroke(w))
+        drawArc(color, -90f, 360f * fraction.coerceIn(0f, 1f), false, topLeft, arcSize, style = Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round))
     }
 }
 

@@ -73,6 +73,8 @@ data class Session(
     val finished: Boolean,
     val ended: Boolean,
     val error: String? = null,
+    /** Average speed over the current step so far (m/s); null until it is meaningful. */
+    val stepAvgSpeed: Double? = null,
 ) {
     fun live(metric: Metric): Double? = when (metric) {
         Metric.POWER -> power
@@ -81,6 +83,10 @@ data class Session(
         Metric.CADENCE -> null
     }
 }
+
+/** Step-average speed in m/s, or null in the first seconds of a step / without movement. */
+internal fun stepAvgSpeed(coveredM: Double, elapsedSec: Double): Double? =
+    if (elapsedSec < 10.0 || coveredM <= 0.0) null else coveredM / elapsedSec
 
 /**
  * Runs one workout: a Health Services exercise (HR, speed, distance, GPS) plus the step engine,
@@ -500,6 +506,7 @@ class ExerciseService : LifecycleService() {
             finished = e.finished,
             ended = ended,
             error = _session.value?.error,
+            stepAvgSpeed = stepAvgSpeed(d - e.stepStartM, e.progress(t, d).elapsedSec),
         )
     }
 

@@ -36,7 +36,7 @@ class WearScreenshotTest {
     private fun session(
         w: Workout, index: Int, remainingSec: Double?, remainingM: Double? = null,
         power: Double? = null, hr: Double? = null, speed: Double? = null,
-        paused: Boolean = false, ended: Boolean = false,
+        paused: Boolean = false, ended: Boolean = false, stepAvg: Double? = null,
     ) = Session(
         workout = w,
         stepIndex = index,
@@ -53,6 +53,7 @@ class WearScreenshotTest {
         paused = paused,
         finished = index >= w.steps.size,
         ended = ended,
+        stepAvgSpeed = stepAvg,
     )
 
     @Test fun list() = snap { WorkoutList(Samples.workouts) {} }
@@ -66,7 +67,7 @@ class WearScreenshotTest {
     }
 
     @Test fun runTooFast() = snap {
-        ActiveWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95))
+        ActiveWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8))
     }
 
     @Test fun runDistanceStep() = snap {
