@@ -52,7 +52,7 @@ class UploadTest {
         server.enqueue(MockResponse().setResponseCode(401).setBody("bad key"))
         val e = runCatching { upload() }.exceptionOrNull()
         assertTrue(e is IOException)
-        assertTrue(e!!.message!!.contains("401"))
+        assertTrue(e!!.message!!.contains("API key rejected"))
         assertFalse(e.message!!.contains(key))
     }
 

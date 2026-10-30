@@ -66,7 +66,7 @@ class IntervalsApi(
                 .build()
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
-                    throw IOException("intervals.icu HTTP ${resp.code}: ${resp.body?.string().orEmpty().take(200)}")
+                    throw IOException(friendlyHttpError(resp.code, resp.body?.string().orEmpty()))
                 }
             }
         }
