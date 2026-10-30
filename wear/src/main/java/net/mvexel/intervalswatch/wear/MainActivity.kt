@@ -84,11 +84,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repo = WorkoutRepository(this)
-        // adb shell am start -n .../.wear.MainActivity --es debug_sample ride|run
+        // adb shell am start -n .../.wear.MainActivity --es debug_sample ride|run|walk
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             when (intent.getStringExtra("debug_sample")) {
                 "ride" -> repo.inject(Samples.ride)
                 "run" -> repo.inject(Samples.run)
+                "walk" -> repo.inject(Samples.walk)
             }
         }
         lifecycle.addObserver(AmbientLifecycleObserver(this, ambientCallback))

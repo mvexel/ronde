@@ -35,7 +35,7 @@ object Format {
     fun unitLabel(metric: Metric, unit: PaceUnit, sport: Sport? = null): String = when (metric) {
         Metric.POWER -> "W"
         Metric.HEART_RATE -> "bpm"
-        Metric.CADENCE -> if (sport == Sport.RUN) "spm" else "rpm"
+        Metric.CADENCE -> if (sport == Sport.RUN || sport == Sport.WALK) "spm" else "rpm"
         Metric.PACE -> paceSuffix(unit)
     }
 

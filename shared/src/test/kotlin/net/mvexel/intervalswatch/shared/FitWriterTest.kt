@@ -82,6 +82,19 @@ class FitWriterTest {
         assertEquals(90L, FitWriter.fitCadence(ride, 90))
     }
 
+    @Test fun walkIsFitSportWalkingWithStridesCadence() {
+        val run = recording()
+        val walk = run.copy(sport = Sport.WALK)
+        assertEquals(100L, FitWriter.fitCadence(walk, 200))
+        val r = FitWriter.encode(run)
+        val w = FitWriter.encode(walk)
+        assertEquals(r.size, w.size)
+        // Only the sport bytes (lap + session) differ, apart from the trailing CRC.
+        val diffs = (0 until r.size - 2).filter { r[it] != w[it] }
+        assertTrue(diffs.isNotEmpty())
+        diffs.forEach { assertEquals(1, r[it].toInt()); assertEquals(11, w[it].toInt()) }
+    }
+
     @Test fun cadenceFieldIsWrittenHalvedForRuns() {
         fun fit(cad: Int, sport: Sport): ByteArray {
             val b = RecordingBuilder("C", sport, false, 1_790_000_000_000L)

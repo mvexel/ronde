@@ -220,4 +220,14 @@ class ParserTest {
         assertEquals(0, t.compare(175.0, 0.0))
         assertEquals(1, t.compare(190.0, 0.0))
     }
+
+    @Test
+    fun walkParsesAsWalkWithPaceAndCadenceLabel() {
+        val w = Samples.walk
+        assertEquals(Sport.WALK, w.sport)
+        assertEquals(Sport.WALK, IntervalsParser.sportOf("Walk"))
+        assertEquals(Sport.RUN, IntervalsParser.sportOf("TrailRun"))
+        assertEquals(Metric.PACE, w.steps.first().primary)
+        assertEquals("spm", Format.unitLabel(Metric.CADENCE, w.paceUnit, w.sport))
+    }
 }

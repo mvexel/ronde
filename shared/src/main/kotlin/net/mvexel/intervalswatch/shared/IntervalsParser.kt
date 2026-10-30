@@ -58,6 +58,7 @@ object IntervalsParser {
         type == null -> Sport.OTHER
         type.contains("Run") -> Sport.RUN
         type.contains("Ride") -> Sport.RIDE
+        type.contains("Walk") -> Sport.WALK
         else -> Sport.OTHER
     }
 

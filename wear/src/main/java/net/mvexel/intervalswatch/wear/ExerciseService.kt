@@ -209,6 +209,7 @@ class ExerciseService : LifecycleService() {
         val type = when (workout.sport) {
             Sport.RUN -> if (workout.indoor) ExerciseType.RUNNING_TREADMILL else ExerciseType.RUNNING
             Sport.RIDE -> if (workout.indoor) ExerciseType.BIKING_STATIONARY else ExerciseType.BIKING
+            Sport.WALK -> ExerciseType.WALKING
             Sport.OTHER -> ExerciseType.WORKOUT
         }
         val e = WorkoutEngine(workout).also { it.start() }
@@ -227,8 +228,8 @@ class ExerciseService : LifecycleService() {
             // LOCATION may only be requested together with setIsGpsEnabled(true).
             val wanted = setOf(DataType.HEART_RATE_BPM, DataType.SPEED, DataType.DISTANCE_TOTAL, DataType.DISTANCE) +
                 (if (useGps) setOf(DataType.LOCATION) else emptySet()) +
-                // Step cadence is for running; a ride has no step rate.
-                (if (workout.sport == Sport.RUN) setOf(DataType.STEPS_PER_MINUTE) else emptySet())
+                // Step cadence is for running and walking; a ride has no step rate.
+                (if (workout.sport == Sport.RUN || workout.sport == Sport.WALK) setOf(DataType.STEPS_PER_MINUTE) else emptySet())
             val dataTypes = wanted.filter { it in caps.supportedDataTypes }.toSet()
             val config = ExerciseConfig.builder(type)
                 .setDataTypes(dataTypes)

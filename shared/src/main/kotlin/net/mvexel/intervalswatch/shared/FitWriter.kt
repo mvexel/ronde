@@ -12,9 +12,9 @@ import kotlin.math.roundToLong
  */
 object FitWriter {
 
-    /** FIT run cadence is strides/min (one foot), the watch reports steps/min; rides are rpm as is. */
+    /** FIT run and walk cadence is strides/min (one foot), the watch reports steps/min; rides are rpm as is. */
     internal fun fitCadence(rec: Recording, c: Int): Long =
-        if (rec.sport == Sport.RUN) (c / 2.0).roundToLong() else c.toLong()
+        if (rec.sport == Sport.RUN || rec.sport == Sport.WALK) (c / 2.0).roundToLong() else c.toLong()
 
     private const val FIT_EPOCH_OFFSET = 631_065_600L // 1989-12-31 minus unix epoch, seconds
     private const val SEMICIRCLE = 2_147_483_648.0 / 180.0
@@ -73,7 +73,7 @@ object FitWriter {
 
         val startFit = fit(0.0)
         val endFit = fit(rec.elapsedSec)
-        val sport = when (rec.sport) { Sport.RUN -> 1L; Sport.RIDE -> 2L; Sport.OTHER -> 0L }
+        val sport = when (rec.sport) { Sport.RUN -> 1L; Sport.RIDE -> 2L; Sport.WALK -> 11L; Sport.OTHER -> 0L }
         val subSport = when {
             rec.sport == Sport.RUN && rec.indoor -> 1L
             rec.sport == Sport.RIDE && rec.indoor -> 6L
