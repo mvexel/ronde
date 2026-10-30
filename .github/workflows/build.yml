@@ -9,18 +9,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
       - name: Unit tests
         run: ./gradlew :shared:test
       - name: Build debug APKs
         run: ./gradlew :mobile:assembleDebug :wear:assembleDebug
       - name: Screenshots
-        run: ./gradlew :mobile:recordPaparazziDebug :wear:recordPaparazziDebug
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --console=plain :mobile:recordPaparazziDebug :wear:recordPaparazziDebug 2>&1 | tee screenshots.log
+      - name: Report screenshot errors
+        if: failure()
+        shell: bash
+        run: |
+          grep -hE "e: |What went wrong|Exception|Caused by|FAILED" -A2 screenshots.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+          for x in $(find . -path '*test-results*' -name '*.xml'); do
+            grep -A4 "<failure" "$x" | head -12 | while IFS= read -r l; do echo "::error::$l"; done
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: screenshots
