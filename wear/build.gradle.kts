@@ -20,7 +20,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // No release keystore here; sign with debug so a release-like build is installable for measuring.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
@@ -45,6 +49,7 @@ dependencies {
     implementation(libs.wear.compose.material)
     implementation(libs.wear.compose.foundation)
     implementation(libs.wear)
+    implementation("androidx.profileinstaller:profileinstaller:1.4.0")
     implementation(libs.wear.ongoing)
     implementation(libs.health.services)
     implementation(libs.play.services.wearable)

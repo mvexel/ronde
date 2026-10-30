@@ -194,7 +194,7 @@ internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, onPi
 @Composable
 private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    val perms = buildList {
+    val perms = remember(w.indoor, w.usesPower) { buildList {
         // Wear OS 6 (API 36) replaces BODY_SENSORS with the Health permission for heart rate.
         // compileSdk is 35, so the new name is a string literal.
         if (Build.VERSION.SDK_INT >= 36) add("android.permission.health.READ_HEART_RATE")
@@ -206,7 +206,7 @@ private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onBack: () -> Uni
             add(Manifest.permission.BLUETOOTH_SCAN)
             add(Manifest.permission.BLUETOOTH_CONNECT)
         }
-    }.toTypedArray()
+    }.toTypedArray() }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         ExerciseService.start(ctx, w)
     }
@@ -517,18 +517,21 @@ private fun kindColor(k: StepKind): Color = when (k) {
  *  plain Column in inspection mode (Paparazzi can't render ScalingLazyColumn). */
 internal class WatchListScope {
     val entries = mutableListOf<@Composable () -> Unit>()
-    fun item(content: @Composable () -> Unit) { entries += content }
+    // Stable per-entry keys (explicit key, else position) so scrolling doesn't re-create rows.
+    val keys = mutableListOf<Any>()
+    fun item(key: Any? = null, content: @Composable () -> Unit) { keys += key ?: "i${entries.size}"; entries += content }
     fun <T> items(list: List<T>, key: ((T) -> Any)? = null, content: @Composable (T) -> Unit) {
-        list.forEach { t -> entries += { content(t) } }
+        list.forEach { t -> keys += key?.invoke(t) ?: "i${entries.size}"; entries += { content(t) } }
     }
     fun items(count: Int, content: @Composable (Int) -> Unit) {
-        repeat(count) { i -> entries += { content(i) } }
+        repeat(count) { i -> keys += "i${entries.size}"; entries += { content(i) } }
     }
 }
 
 @Composable
 internal fun WatchList(build: WatchListScope.() -> Unit) {
-    val entries = WatchListScope().apply(build).entries
+    val scope = WatchListScope().apply(build)
+    val entries = scope.entries
     if (androidx.compose.ui.platform.LocalInspectionMode.current) {
         Column(
             Modifier.fillMaxSize().padding(top = 28.dp, start = 12.dp, end = 12.dp),
@@ -536,8 +539,10 @@ internal fun WatchList(build: WatchListScope.() -> Unit) {
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) { entries.forEach { it() } }
     } else {
-        ScalingLazyColumn(Modifier.fillMaxSize()) {
-            items(entries.size) { i -> entries[i]() }
+        // Hoisted state; rotary (crown/bezel) scrolling is built into ScalingLazyColumn since wear-compose 1.4.
+        val state = androidx.wear.compose.foundation.lazy.rememberScalingLazyListState()
+        ScalingLazyColumn(Modifier.fillMaxSize(), state = state) {
+            items(entries.size, key = { scope.keys[it] }) { i -> entries[i]() }
         }
     }
 }
