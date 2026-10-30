@@ -38,6 +38,7 @@ class RecordingReceiverService : WearableListenerService() {
         val part = File(recordingsDir(this), "$name.part")
         if (closeReason != ChannelClient.ChannelCallback.CLOSE_REASON_NORMAL) {
             part.delete() // the watch resends pending files
+            Wearable.getChannelClient(this).close(channel)
             return
         }
         val done = File(recordingsDir(this), name)
@@ -57,15 +58,15 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val failure = uploadRecordingFile(IntervalsApi(), settings, file)
 
         notifyWatch(name, failure)
-        if (failure == null) {
-            file.delete()
-            return Result.success()
+        return when {
+            failure == null -> { file.delete(); Result.success() }
+            failure.retryable -> Result.retry()
+            else -> Result.failure()
         }
-        return Result.retry()
     }
 
-    private suspend fun notifyWatch(name: String, failure: String?) {
-        val msg = RecordingProtocol.result(failure == null, name, failure.orEmpty())
+    private suspend fun notifyWatch(name: String, failure: UploadFailure?) {
+        val msg = RecordingProtocol.result(failure == null, name, failure?.reason.orEmpty(), failure?.retryable ?: true)
         runCatching {
             val client = Wearable.getMessageClient(applicationContext)
             Wearable.getNodeClient(applicationContext).connectedNodes.await().forEach {
@@ -88,15 +89,17 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     }
 }
 
-/** @return null on success, else a short reason. The reason never contains the API key. */
-suspend fun uploadRecordingFile(api: IntervalsApi, settings: Settings, file: File): String? {
-    if (!settings.configured) return "No API key on the phone"
-    // File name is <epochSec>_<workout_name>.fit
-    val stem = file.name.removeSuffix(".fit")
+class UploadFailure(val reason: String, val retryable: Boolean)
+
+/** @return null on success, else why not. The reason never contains the API key. */
+suspend fun uploadRecordingFile(api: IntervalsApi, settings: Settings, file: File): UploadFailure? {
+    if (!settings.configured) return UploadFailure("No API key on the phone", retryable = true)
     return runCatching {
         api.uploadActivity(
             settings, file.readBytes(), file.name,
-            stem.substringAfter('_').replace('_', ' '), "intervalswatch-${stem.substringBefore('_')}",
+            RecordingProtocol.displayName(file.name), RecordingProtocol.externalId(file.name),
         )
-    }.exceptionOrNull()?.let { it.message ?: "upload failed" }
+    }.exceptionOrNull()?.let {
+        UploadFailure(it.message ?: "upload failed", (it as? UploadHttpException)?.retryable ?: true)
+    }
 }

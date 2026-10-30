@@ -45,7 +45,7 @@ object FitWriter {
 
     fun encode(rec: Recording): ByteArray {
         val body = ByteArrayOutputStream()
-        fun fit(tSec: Double) = (rec.startEpochMs / 1000 + tSec.roundToLong() - FIT_EPOCH_OFFSET).coerceAtLeast(0)
+        fun fit(tSec: Double) = (rec.startEpochMs / 1000 + kotlin.math.floor(tSec).toLong() - FIT_EPOCH_OFFSET).coerceAtLeast(0)
         fun ms(s: Double) = (s * 1000).roundToLong()
         fun cm(m: Double) = (m * 100).roundToLong()
 

@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import android.util.Log
@@ -126,8 +127,10 @@ class ExerciseService : LifecycleService() {
     private var speed: Double? = null
     private var gpsReady = false
     private var ended = false
+    private var finishing = false
     private var recorder: RecordingBuilder? = null
     private var recordStartMs = 0L
+    private var recordStartElapsed = 0L
     private var lastSampleSec = -1
     private var location: LocationData? = null
 
@@ -165,6 +168,8 @@ class ExerciseService : LifecycleService() {
 
     private suspend fun begin(workout: Workout) {
         ended = false
+        finishing = false
+        RecordingStore.reset(applicationContext)
         val type = when (workout.sport) {
             Sport.RUN -> if (workout.indoor) ExerciseType.RUNNING_TREADMILL else ExerciseType.RUNNING
             Sport.RIDE -> if (workout.indoor) ExerciseType.BIKING_STATIONARY else ExerciseType.BIKING
@@ -173,6 +178,7 @@ class ExerciseService : LifecycleService() {
         val e = WorkoutEngine(workout).also { it.start() }
         engine = e
         recordStartMs = System.currentTimeMillis()
+        recordStartElapsed = SystemClock.elapsedRealtime()
         recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, recordStartMs)
         lastSampleSec = -1
         location = null
@@ -180,9 +186,11 @@ class ExerciseService : LifecycleService() {
 
         try {
             val caps = client.getCapabilitiesAsync().await().getExerciseTypeCapabilities(type)
-            val wanted = setOf(DataType.HEART_RATE_BPM, DataType.SPEED, DataType.DISTANCE_TOTAL, DataType.DISTANCE, DataType.LOCATION)
-            val dataTypes = wanted.filter { it in caps.supportedDataTypes }.toSet()
             val useGps = !workout.indoor && hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+            // LOCATION may only be requested together with setIsGpsEnabled(true).
+            val wanted = setOf(DataType.HEART_RATE_BPM, DataType.SPEED, DataType.DISTANCE_TOTAL, DataType.DISTANCE) +
+                if (useGps) setOf(DataType.LOCATION) else emptySet()
+            val dataTypes = wanted.filter { it in caps.supportedDataTypes }.toSet()
             val config = ExerciseConfig.builder(type)
                 .setDataTypes(dataTypes)
                 .setIsGpsEnabled(useGps)
@@ -225,7 +233,11 @@ class ExerciseService : LifecycleService() {
             }
             m.getData(DataType.LOCATION).lastOrNull()?.value?.let { location = it }
             m.getData(DataType.DISTANCE).forEach { distanceDeltaSum += it.value }
-            if (state?.isEnded == true) ended = true
+            if (state?.isEnded == true) {
+                ended = true
+                // Health Services ended it (another app, system): still save what we have.
+                if (!finishing) lifecycleScope.launch { finish() }
+            }
             tick()
         }
 
@@ -268,7 +280,7 @@ class ExerciseService : LifecycleService() {
         publish()
     }
 
-    private fun wallSec() = (System.currentTimeMillis() - recordStartMs) / 1000.0
+    private fun wallSec() = (SystemClock.elapsedRealtime() - recordStartElapsed) / 1000.0
 
     private fun record(e: WorkoutEngine, t: Double, d: Double) {
         val r = recorder ?: return
@@ -338,6 +350,8 @@ class ExerciseService : LifecycleService() {
     }
 
     private suspend fun finish() {
+        if (finishing) return
+        finishing = true
         ticker?.cancel()
         runCatching { client.endExerciseAsync().await() }
         runCatching { client.clearUpdateCallbackAsync(callback).await() }
@@ -346,9 +360,10 @@ class ExerciseService : LifecycleService() {
         publish()
         val rec = recorder?.build(wallSec(), distance())
         recorder = null
-        if (rec != null) RecordingStore.save(applicationContext, rec)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+        // After stopSelf and outside this service's scope, so a new workout isn't held up or cut off.
+        if (rec != null) RecordingStore.saveAsync(applicationContext, rec)
     }
 
     private fun goForeground(workout: Workout) {

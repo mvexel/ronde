@@ -83,8 +83,24 @@ class FitWriterTest {
     }
 
     @Test fun resultMessageRoundTrips() {
-        val (ok, name, reason) = RecordingProtocol.parseResult(RecordingProtocol.result(false, "a.fit", "HTTP 401"))
-        assertEquals(false, ok); assertEquals("a.fit", name); assertEquals("HTTP 401", reason)
+        val r = RecordingProtocol.parseResult(RecordingProtocol.result(false, "a.fit", "HTTP 401", retry = false))
+        assertEquals(false, r.ok); assertEquals("a.fit", r.fileName); assertEquals("HTTP 401", r.reason)
+        assertEquals(false, r.retry)
+        assertEquals(true, RecordingProtocol.parseResult(RecordingProtocol.result(true, "a.fit")).retry)
+    }
+
+    @Test fun workoutNameSurvivesTheFileName() {
+        val name = "Threshold 4x8' @ 95% — Ünïcode"
+        val f = RecordingProtocol.fileName(1_790_000_000_000L, name)
+        assertTrue(f.matches(Regex("[0-9]+_[A-Za-z0-9_-]+\\.fit")))
+        assertEquals(name, RecordingProtocol.displayName(f))
+        assertEquals("intervalswatch-1790000000", RecordingProtocol.externalId(f))
+    }
+
+    @Test fun oneRecordPerSecond() {
+        val b = RecordingBuilder("D", Sport.RUN, false, 0L)
+        b.add(RecSample(1.2, 0.0)); b.add(RecSample(1.9, 1.0)); b.add(RecSample(2.1, 2.0))
+        assertEquals(2, b.build(3.0, 2.0).samples.size)
     }
 
     @Test fun pausesSplitElapsedAndTimerTime() {

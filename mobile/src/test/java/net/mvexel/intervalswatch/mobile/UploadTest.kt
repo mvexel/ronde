@@ -61,12 +61,42 @@ class UploadTest {
         val file = File.createTempFile("1_Ride", ".fit").apply { writeBytes(fit) }
         val failure = runBlocking { uploadRecordingFile(api, settings, file) }
         assertNotNull(failure)
-        assertTrue(failure!!.contains("503"))
-        assertFalse(failure.contains(key))
+        assertTrue(failure!!.reason.contains("503"))
+        assertTrue(failure.retryable)
+        assertFalse(failure.reason.contains(key))
         // Next attempt succeeds.
         server.enqueue(MockResponse().setResponseCode(201).setBody("[]"))
         assertNull(runBlocking { uploadRecordingFile(api, settings, file) })
         file.delete()
+    }
+
+    @Test fun badRequest400IsNotRetried() {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("{\"error\":\"bad fit\"}"))
+        val file = File.createTempFile("1_Ride", ".fit").apply { writeBytes(fit) }
+        val failure = runBlocking { uploadRecordingFile(api, settings, file) }!!
+        assertFalse(failure.retryable)
+        assertTrue(failure.reason.contains("bad fit"))
+        file.delete()
+    }
+
+    @Test fun authAndRateLimitErrorsAreRetried() {
+        for (code in listOf(401, 403, 429)) {
+            server.enqueue(MockResponse().setResponseCode(code))
+            val file = File.createTempFile("1_Ride", ".fit").apply { writeBytes(fit) }
+            assertTrue("$code", runBlocking { uploadRecordingFile(api, settings, file) }!!.retryable)
+            file.delete()
+        }
+    }
+
+    @Test fun uploadUsesTheRealWorkoutName() {
+        server.enqueue(MockResponse().setResponseCode(201).setBody("[]"))
+        val f = File(System.getProperty("java.io.tmpdir"), net.mvexel.intervalswatch.shared.RecordingProtocol.fileName(1_790_000_000_000L, "Tempo 3x10' @ 95%"))
+        f.writeBytes(fit)
+        assertNull(runBlocking { uploadRecordingFile(api, settings, f) })
+        val url = server.takeRequest().requestUrl!!
+        assertEquals("Tempo 3x10' @ 95%", url.queryParameter("name"))
+        assertEquals("intervalswatch-1790000000", url.queryParameter("external_id"))
+        f.delete()
     }
 
     @Test fun missingKeyDoesNotCallTheServer() {

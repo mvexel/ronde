@@ -15,6 +15,11 @@ import java.io.IOException
 import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
+/** [retryable] is false for client errors another attempt can't fix (anything 4xx except 401/403/429). */
+class UploadHttpException(val code: Int, message: String) : IOException(message) {
+    val retryable: Boolean get() = code !in 400..499 || code == 401 || code == 403 || code == 429
+}
+
 /** Personal API key auth: HTTP Basic with username "API_KEY" (intervals.icu → Settings → Developer). */
 class IntervalsApi(
     private val baseUrl: String = "https://intervals.icu",
@@ -66,7 +71,7 @@ class IntervalsApi(
                 .build()
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
-                    throw IOException(friendlyHttpError(resp.code, resp.body?.string().orEmpty()))
+                    throw UploadHttpException(resp.code, friendlyHttpError(resp.code, resp.body?.string().orEmpty()))
                 }
             }
         }
