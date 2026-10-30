@@ -31,4 +31,26 @@ class LoginFlowTest {
         assertFalse(isLoginRedirect("net.mvexel.intervalswatch:/other?code=c"))
         assertFalse(isLoginRedirect(null))
     }
+
+    @Test fun wrongStateRedirectKeepsPendingLogin() {
+        val prefs = mutablePreferencesOf()
+        writePending(prefs, p)
+        assertNull(takeMatching(prefs, "net.mvexel.intervalswatch:/oauth?code=c&state=forged", 2_000))
+        assertEquals(p, readPending(prefs, 2_000))
+        assertEquals(p, takeMatching(prefs, "net.mvexel.intervalswatch:/oauth?code=c&state=s", 2_000))
+        assertNull(readPending(prefs, 2_000))
+    }
+
+    @Test fun settingsAndUiStateToStringHideTheToken() {
+        val s = Settings(token = "sekrit-token", authType = AuthType.OAUTH)
+        assertFalse(s.toString().contains("sekrit-token"))
+        assertFalse(UiState(settings = s).toString().contains("sekrit-token"))
+    }
+
+    @Test fun oauth403CountsAsAuthRejectionButApiKey403DoesNot() {
+        assertTrue(isAuthRejection(401, AuthType.API_KEY))
+        assertTrue(isAuthRejection(403, AuthType.OAUTH))
+        assertFalse(isAuthRejection(403, AuthType.API_KEY))
+        assertFalse(isAuthRejection(500, AuthType.OAUTH))
+    }
 }

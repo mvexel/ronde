@@ -59,7 +59,10 @@ data class UiState(
     val editing: Boolean = false,
     /** intervals.icu answered 401: the user has to log in again. */
     val authExpired: Boolean = false,
-)
+) {
+    // Settings.toString already hides the token; keep the whole state out of logs anyway.
+    override fun toString() = "UiState(settings=$settings, workouts=${workouts.size}, busy=$busy, editing=$editing, authExpired=$authExpired)"
+}
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val store = SettingsStore(app)
@@ -85,7 +88,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun handleRedirect(uri: String?) {
         if (!isLoginRedirect(uri)) return
         viewModelScope.launch {
-            val p = pending.take() ?: return@launch
+            val p = pending.takeMatching(uri!!) ?: return@launch
             when (val r = OAuth.parseRedirect(uri!!, p.state)) {
                 is RedirectResult.Failure -> _state.update { it.copy(status = loginError(r.error)) }
                 is RedirectResult.Code -> {
@@ -106,6 +109,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         OAuthError.StateMismatch -> "Login failed: response did not match the request"
         OAuthError.MissingCode -> "Login failed: no code returned"
     }
+
+    fun showStatus(msg: String) = _state.update { it.copy(status = msg) }
 
     fun edit() = _state.update { it.copy(editing = true) }
 
@@ -169,7 +174,11 @@ class MainActivity : ComponentActivity() {
                 val st by vm.state.collectAsStateWithLifecycle()
                 MainScreen(
                     st, onSync = vm::sync, onEdit = vm::edit, onSave = vm::save, onLogout = vm::logout, onClose = vm::closeEditor,
-                    onLogin = { lifecycleScope.launch { launchLoginTab(this@MainActivity, vm.beginLogin()) } },
+                    onLogin = {
+                        lifecycleScope.launch {
+                            if (!launchLoginTab(this@MainActivity, vm.beginLogin())) vm.showStatus("No browser found to log in with")
+                        }
+                    },
                 )
             }
         }

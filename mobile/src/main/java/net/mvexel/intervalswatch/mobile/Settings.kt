@@ -35,6 +35,10 @@ data class Settings(
 ) {
     val configured: Boolean get() = token.isNotBlank()
 
+    /** The token is a credential: never print it. */
+    override fun toString() =
+        "Settings(athleteId=$athleteId, daysAhead=$daysAhead, autoSync=$autoSync, authType=$authType, configured=$configured)"
+
     /** Value of the Authorization header: Bearer for an OAuth token, Basic API_KEY:key for a pasted key. */
     val authHeader: String
         get() = when (authType) {
