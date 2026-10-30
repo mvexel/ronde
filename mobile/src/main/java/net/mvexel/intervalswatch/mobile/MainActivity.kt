@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.mvexel.intervalswatch.shared.Format
+import net.mvexel.intervalswatch.shared.ScreenSettings
 import net.mvexel.intervalswatch.shared.Workout
 
 data class UiState(
@@ -69,6 +70,8 @@ data class UiState(
     val authExpired: Boolean = false,
     /** Recordings kept on the phone, newest first. */
     val recordings: List<RecordingItem> = emptyList(),
+    /** The "Watch screens & alerts" screen is open. */
+    val watchScreens: Boolean = false,
 ) {
     // Settings.toString already hides the token; keep the whole state out of logs anyway.
     override fun toString() = "UiState(settings=$settings, workouts=${workouts.size}, busy=$busy, editing=$editing, authExpired=$authExpired)"
@@ -133,6 +136,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun showStatus(msg: String) = _state.update { it.copy(status = msg) }
 
     fun edit() = _state.update { it.copy(editing = true) }
+
+    fun openWatchScreens(open: Boolean) = _state.update { it.copy(watchScreens = open) }
 
     fun closeEditor() = _state.update { it.copy(editing = false) }
 
@@ -246,8 +251,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             RunbumTheme {
                 val st by vm.state.collectAsStateWithLifecycle()
+                val screens by screenSettings.settings.collectAsStateWithLifecycle()
                 MainScreen(
-                    st, onSync = vm::sync, onEdit = vm::edit, onSave = vm::save, onLogout = vm::logout, onClose = vm::closeEditor,
+                    st, screens = screens,
+                    onEditScreens = { edit -> lifecycleScope.launch { screenSettings.update(edit) } },
+                    onTestBuzz = { lifecycleScope.launch { WatchSync.testBuzz(this@MainActivity, screens.buzzStrength) } },
+                    onWatchScreens = vm::openWatchScreens,
+                    onSync = vm::sync, onEdit = vm::edit, onSave = vm::save, onLogout = vm::logout, onClose = vm::closeEditor,
                     onShareRecording = ::share, onSaveRecording = ::save,
                     onLogin = {
                         lifecycleScope.launch {
@@ -269,6 +279,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 internal fun MainScreen(
     st: UiState,
+    screens: ScreenSettings = ScreenSettings(),
+    onEditScreens: ((ScreenSettings) -> ScreenSettings) -> Unit = {},
+    onTestBuzz: () -> Unit = {},
+    onWatchScreens: (Boolean) -> Unit = {},
     onSync: () -> Unit,
     onEdit: () -> Unit,
     onSave: (Settings) -> Unit,
@@ -289,6 +303,8 @@ internal fun MainScreen(
             }
             if (!st.settings.configured) {
                 LoginScreen(st, onLogin = onLogin, onSave = onSave, onAdvanced = onEdit)
+            } else if (st.watchScreens) {
+                WatchScreensScreen(screens, st.watches.isNotEmpty(), onEditScreens, onTestBuzz, onBack = { onWatchScreens(false) })
             } else if (st.editing) {
                 SettingsForm(st.settings, onSave = onSave, onCancel = onClose, busy = st.busy)
             } else {
@@ -297,6 +313,7 @@ internal fun MainScreen(
                     Button(onClick = onSync, enabled = !st.busy) { Text("Sync now") }
                     Spacer(Modifier.width(8.dp))
                     TextButton(onClick = onEdit) { Text("Settings") }
+                    TextButton(onClick = { onWatchScreens(true) }) { Text("Watch screens & alerts") }
                 }
                 Text(
                     if (st.watches.isEmpty()) "No watch connected (it will sync when it reconnects)"

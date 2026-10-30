@@ -4,6 +4,8 @@ import android.content.Context
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.tasks.await
+import net.mvexel.intervalswatch.shared.BuzzStrength
+import net.mvexel.intervalswatch.shared.SettingsSync
 import net.mvexel.intervalswatch.shared.Sync
 import net.mvexel.intervalswatch.shared.Workout
 import net.mvexel.intervalswatch.shared.WorkoutBundle
@@ -30,6 +32,14 @@ object WatchSync {
             dataMap.putLong(Sync.KEY_SYNCED_AT, System.currentTimeMillis())
         }.asPutDataRequest().setUrgent()
         runCatching { Wearable.getDataClient(context).putDataItem(request).await() }
+    }
+
+    /** Asks the watch to play the sample buzz at [strength] (settings.md §4 row 6). */
+    suspend fun testBuzz(context: Context, strength: BuzzStrength) {
+        val nodes = runCatching { Wearable.getNodeClient(context).connectedNodes.await() }.getOrDefault(emptyList())
+        nodes.forEach { n ->
+            runCatching { Wearable.getMessageClient(context).sendMessage(n.id, SettingsSync.TEST_BUZZ_PATH, SettingsSync.encodeTestBuzz(strength)).await() }
+        }
     }
 
     suspend fun connectedWatches(context: Context): List<String> =

@@ -166,6 +166,13 @@ object SettingsSync {
     const val PATH = "/settings"
     const val KEY_JSON = "json"
 
+    /** Phone → watch message: play the sample buzz. Payload is the [BuzzStrength] name. */
+    const val TEST_BUZZ_PATH = "/test-buzz"
+
+    fun encodeTestBuzz(strength: BuzzStrength): ByteArray = strength.name.toByteArray()
+    fun decodeTestBuzz(data: ByteArray?): BuzzStrength =
+        data?.let { b -> BuzzStrength.entries.firstOrNull { it.name == String(b) } } ?: BuzzStrength.NORMAL
+
     /** The copy to keep: [remote] only when it is strictly newer, so a tie or an echo changes nothing. */
     fun merge(local: ScreenSettings, remote: ScreenSettings): ScreenSettings =
         if (remote.updatedAt > local.updatedAt) remote else local

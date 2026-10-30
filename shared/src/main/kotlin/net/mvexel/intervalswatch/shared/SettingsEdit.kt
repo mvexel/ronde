@@ -18,6 +18,9 @@ fun SportSettings.withSlot(slot: Slot, field: Field): SportSettings = when (slot
     Slot.BOTTOM_EDGE -> copy(bottomEdge = field)
 }
 
+fun SportSettings.withTotalsField(index: Int, field: Field): SportSettings =
+    copy(totalsFields = totalsFields.mapIndexed { i, f -> if (i == index) field else f })
+
 fun ScreenSettings.withSport(sport: Sport, edit: (SportSettings) -> SportSettings): ScreenSettings =
     if (sport == Sport.RIDE) copy(ride = edit(ride)) else copy(run = edit(run))
 

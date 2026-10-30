@@ -38,3 +38,16 @@ class SettingsEditTest {
         assertEquals(Field.CLOCK, s.forSport(Sport.WALK).flankLeft)
     }
 }
+
+class SettingsEditPhoneTest {
+    @Test fun totalsFieldReplacesOnlyThatIndex() {
+        val s = SportSettings.RUN_DEFAULT.withTotalsField(2, Field.AVG_HR)
+        assertEquals(listOf(Field.TOTAL_TIME, Field.DISTANCE, Field.AVG_HR, Field.AVG_HR), s.totalsFields)
+    }
+
+    @Test fun testBuzzPayloadRoundTrips() {
+        assertEquals(BuzzStrength.STRONG, SettingsSync.decodeTestBuzz(SettingsSync.encodeTestBuzz(BuzzStrength.STRONG)))
+        assertEquals(BuzzStrength.NORMAL, SettingsSync.decodeTestBuzz(null))
+        assertEquals(BuzzStrength.NORMAL, SettingsSync.decodeTestBuzz("junk".toByteArray()))
+    }
+}
