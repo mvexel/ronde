@@ -216,7 +216,7 @@ class ExerciseService : LifecycleService() {
         engine = e
         recordStartMs = System.currentTimeMillis()
         recordStartElapsed = SystemClock.elapsedRealtime()
-        recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, recordStartMs, workout.id)
+        recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, recordStartMs, workout.id.takeUnless { workout.isOpen })
         cadence = null
         pauseSpans.clear(); pausedSince = null; distanceAnchor = 0.0
         listOf(hrSeries, speedSeries, distanceSeries, powerSeries, cadenceSeries, locationSeries).forEach { it.clear() }
