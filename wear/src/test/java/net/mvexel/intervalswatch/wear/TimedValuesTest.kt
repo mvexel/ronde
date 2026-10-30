@@ -22,4 +22,12 @@ class TimedValuesTest {
         val v = TimedValues<Int>().apply { add(5.0, 50); clear() }
         assertNull(v.at(6.0, 100.0))
     }
+
+    @Test fun trimsByAgeNotCount() {
+        val v = TimedValues<Int>()
+        repeat(2000) { v.add(it * 0.5, it) }  // 1000 s at 2 Hz
+        assertEquals(1999, v.at(999.5, 5.0))
+        assertEquals(1801, v.at(900.5, 5.0))  // still within the last 600 s
+        assertNull(v.at(300.0, 5.0))
+    }
 }

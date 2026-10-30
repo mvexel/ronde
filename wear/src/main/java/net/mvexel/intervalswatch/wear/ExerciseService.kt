@@ -127,6 +127,7 @@ class ExerciseService : LifecycleService() {
     private var distanceTotal = 0.0
     private var distanceDeltaSum = 0.0
     private var hasDistanceTotal = false
+    private var distanceAnchor = 0.0
     private var heartRate: Double? = null
     private var speed: Double? = null
     private var gpsReady = false
@@ -192,6 +193,7 @@ class ExerciseService : LifecycleService() {
         recordStartMs = System.currentTimeMillis()
         recordStartElapsed = SystemClock.elapsedRealtime()
         recorder = RecordingBuilder(workout.name, workout.sport, workout.indoor, recordStartMs)
+        pauseSpans.clear(); pausedSince = null; distanceAnchor = 0.0
         listOf(hrSeries, speedSeries, distanceSeries, powerSeries, locationSeries).forEach { it.clear() }
         publish()
 
@@ -217,7 +219,11 @@ class ExerciseService : LifecycleService() {
         if (workout.usesPower && hasPermission(Manifest.permission.BLUETOOTH_CONNECT) &&
             hasPermission(Manifest.permission.BLUETOOTH_SCAN)
         ) {
-            powerMeter = PowerMeter(this).also { it.start() }
+            powerMeter = PowerMeter(this).also {
+                // From the BLE callback, so power keeps its own time when the ticker stalls.
+                it.onWatts = { w -> powerSeries.add(wallSec(), w) }
+                it.start()
+            }
         }
 
         ticker = lifecycleScope.launch {
@@ -243,18 +249,25 @@ class ExerciseService : LifecycleService() {
                 speedSeries.add(wallOf(p.timeDurationFromBoot), speed!!)
                 times += wallOf(p.timeDurationFromBoot)
             }
+            // Distance: cumulative sum of the interval points (each with its own end time), anchored
+            // to DISTANCE_TOTAL, which carries no time of its own.
+            m.getData(DataType.DISTANCE).forEach {
+                distanceDeltaSum += it.value
+                distanceSeries.add(wallOf(it.endDurationFromBoot), distanceDeltaSum + distanceAnchor)
+                times += wallOf(it.endDurationFromBoot)
+            }
             m.getData(DataType.DISTANCE_TOTAL)?.let {
                 hasDistanceTotal = true
                 distanceTotal = it.total
-                distanceSeries.add(wallSec(), it.total) // aggregate carries no point time
+                distanceAnchor = it.total - distanceDeltaSum
             }
-            m.getData(DataType.DISTANCE).forEach { distanceDeltaSum += it.value }
             m.getData(DataType.LOCATION).forEach { p ->
                 locationSeries.add(wallOf(p.timeDurationFromBoot), p.value)
                 times += wallOf(p.timeDurationFromBoot)
             }
             // One recording sample per data point time, so a batch doesn't become a staircase.
-            if (state == ExerciseState.ACTIVE) times.forEach { recordAt(it) }
+            trackPause()
+            times.forEach { if (!inPause(it)) recordAt(it) }
             if (state?.isEnded == true) {
                 ended = true
                 // Health Services ended it (another app, system): still save what we have.
@@ -273,11 +286,23 @@ class ExerciseService : LifecycleService() {
             if (availability is LocationAvailability) {
                 gpsReady = availability == LocationAvailability.ACQUIRED_TETHERED ||
                     availability == LocationAvailability.ACQUIRED_UNTETHERED
-                // A dropout must not keep repeating the last fix.
-                if (!gpsReady) locationSeries.clear()
             }
         }
     }
+
+    /** Pause intervals in wall seconds, so a late batch is judged by point time, not delivery state. */
+    private val pauseSpans = ArrayList<ClosedFloatingPointRange<Double>>()
+    private var pausedSince: Double? = null
+
+    private fun trackPause() {
+        val paused = state?.isPaused == true
+        val since = pausedSince
+        if (paused && since == null) pausedSince = wallSec()
+        else if (!paused && since != null) { pauseSpans += since..wallSec(); pausedSince = null }
+    }
+
+    private fun inPause(wall: Double) =
+        pausedSince?.let { wall >= it } == true || pauseSpans.any { wall in it }
 
     private fun distance(): Double = if (hasDistanceTotal) distanceTotal else distanceDeltaSum
 
@@ -298,7 +323,9 @@ class ExerciseService : LifecycleService() {
             outOfRangeSinceSec = null
             if (e.finished && before < e.workout.steps.size) buzzDone() else buzzStepChange()
         }
-        powerMeter?.watts?.value?.let { powerSeries.add(wallSec(), it) }
+        // With a live power meter there may be no HS point for this second (indoor, HR 0), and the
+        // ticker is the only clock: sample here too. The builder merges samples of the same second.
+        if (powerMeter?.watts?.value != null && state == ExerciseState.ACTIVE) recordAt(wallSec())
         updateOngoing(e, e.progress(t, d).remainingSec)
         record(e, t, d)
         countdown(e, t, d)
@@ -436,7 +463,8 @@ class ExerciseService : LifecycleService() {
     /** Watch-face chip text: "label m:ss", counting down by itself for timed steps. */
     private fun ongoingStatus(label: String, remainingSec: Double?, paused: Boolean): Status {
         val b = Status.Builder().addTemplate("#label# #time#").addPart("label", Status.TextPart(label))
-        val now = System.currentTimeMillis()
+        // Status parts are rendered against SystemClock.elapsedRealtime().
+        val now = SystemClock.elapsedRealtime()
         val time = if (remainingSec != null) {
             val ms = (remainingSec * 1000).toLong()
             if (paused) Status.TimerPart(now + ms, now, ms) else Status.TimerPart(now + ms)
@@ -479,18 +507,22 @@ internal class TimedValues<T> {
     private val times = ArrayList<Double>()
     private val values = ArrayList<T>()
 
-    fun add(t: Double, v: T) {
+    @Synchronized fun add(t: Double, v: T) {
         if (times.isNotEmpty() && t < times.last()) return
         times += t; values += v
-        // Samples ask for times from the current batch only.
-        if (times.size > 600) { times.subList(0, 300).clear(); values.subList(0, 300).clear() }
+        // A batch can span minutes; keep ten minutes of history.
+        var n = 0
+        while (n < times.size && times[n] < t - KEEP_SEC) n++
+        if (n > 0) { times.subList(0, n).clear(); values.subList(0, n).clear() }
     }
 
-    fun clear() { times.clear(); values.clear() }
+    @Synchronized fun clear() { times.clear(); values.clear() }
 
-    fun at(t: Double, maxAgeSec: Double): T? {
+    @Synchronized fun at(t: Double, maxAgeSec: Double): T? {
         var i = times.size - 1
         while (i >= 0 && times[i] > t) i--
         return if (i >= 0 && t - times[i] <= maxAgeSec) values[i] else null
     }
+
+    private companion object { const val KEEP_SEC = 600.0 }
 }

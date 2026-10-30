@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import net.mvexel.intervalswatch.shared.SaveStatus
@@ -57,8 +58,10 @@ class MainActivity : ComponentActivity() {
     // once a minute; each call bumps ambientTick so the ambient screen recomposes only then.
     private val ambient = mutableStateOf(false)
     private val ambientTick = mutableStateOf(0)
+    private val burnIn = mutableStateOf(false)
     private val ambientCallback = object : AmbientLifecycleObserver.AmbientLifecycleCallback {
         override fun onEnterAmbient(ambientDetails: AmbientLifecycleObserver.AmbientDetails) {
+            burnIn.value = ambientDetails.burnInProtectionRequired
             ambient.value = true
             ambientTick.value++
         }
@@ -77,7 +80,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycle.addObserver(AmbientLifecycleObserver(this, ambientCallback))
-        setContent { MaterialTheme { App(repo, ambient.value, ambientTick.value) } }
+        setContent { MaterialTheme { App(repo, ambient.value, ambientTick.value, burnIn.value) } }
     }
 
     override fun onStart() {
@@ -92,7 +95,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int) {
+private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, burnIn: Boolean) {
     val bundle by repo.bundle.collectAsStateWithLifecycle()
     val session by ExerciseService.session.collectAsStateWithLifecycle()
     val save by RecordingStore.status.collectAsStateWithLifecycle()
@@ -108,12 +111,15 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int) {
 
     val s = session
     when {
+        ambient && (s == null || s.ended) -> AmbientIdle()
         s != null && s.ended -> Summary(s, save) { ExerciseService.dismiss(); selected = null }
         s != null && ambient -> {
             // Freeze the session between ambient updates so the dimmed screen isn't redrawn twice a second.
-            val frozen = remember(ambientTick) { s }
-            AmbientWorkout(frozen)
+            // A step change or pause is shown at once; that is a single redraw.
+            val frozen = remember(ambientTick, s.stepIndex, s.paused) { s }
+            AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0)
         }
+
         s != null -> ActiveWorkout(s)
         selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
         selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onBack = { selected = null })
@@ -323,25 +329,35 @@ private fun secondaryLine(s: Session): String {
     return parts.joinToString("  ")
 }
 
+private val AmbientGray = Color(0xFFBDBDBD)
+
+/** Ambient for the list, detail and summary screens: nothing bright to burn in. */
+@Composable
+internal fun AmbientIdle() {
+    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        Text("Intervals", color = Color.DarkGray, fontSize = 16.sp)
+    }
+}
+
 /** Dimmed, low-power view: current step and time left, black background, no buttons. */
 @Composable
-internal fun AmbientWorkout(s: Session) {
+internal fun AmbientWorkout(s: Session, shift: Int = 0) {
     val w = s.workout
     val step = s.step
     val p = s.progress
     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 22.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 22.dp).offset(x = (shift * 4).dp, y = (shift * 4).dp)) {
             if (step == null) {
-                Text("Workout done", color = Color.White, fontSize = 18.sp)
+                Text("Workout done", color = AmbientGray, fontSize = 18.sp)
             } else {
                 Text(
                     listOfNotNull(step.repeat, step.label).joinToString("  "),
-                    color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = AmbientGray, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 // The target is the biggest thing; time left is whole minutes because the screen
                 // is only redrawn about once a minute (a frozen m:ss would look like a hang).
                 step.primaryTarget?.let {
-                    Text(Format.target(it, p.fraction, w.paceUnit), color = Color.White, fontSize = 30.sp, textAlign = TextAlign.Center)
+                    Text(Format.target(it, p.fraction, w.paceUnit), color = AmbientGray, fontSize = 30.sp, textAlign = TextAlign.Center)
                 }
                 val left = when {
                     p.remainingSec != null -> "${kotlin.math.ceil(p.remainingSec!! / 60).toInt()} min left"
