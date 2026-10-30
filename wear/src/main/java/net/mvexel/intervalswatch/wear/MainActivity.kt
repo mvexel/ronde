@@ -91,7 +91,7 @@ private fun App(repo: WorkoutRepository) {
 }
 
 @Composable
-private fun WorkoutList(workouts: List<Workout>, onPick: (Workout) -> Unit) {
+internal fun WorkoutList(workouts: List<Workout>, onPick: (Workout) -> Unit) {
     ScalingLazyColumn(Modifier.fillMaxSize()) {
         item { Text("Workouts", style = MaterialTheme.typography.title3) }
         if (workouts.isEmpty()) {
@@ -169,7 +169,7 @@ private fun StepRow(w: Workout, s: WorkoutStep) {
 }
 
 @Composable
-private fun ActiveWorkout(s: Session) {
+internal fun ActiveWorkout(s: Session) {
     val ctx = LocalContext.current
     DisposableEffect(Unit) {
         (ctx as? MainActivity)?.keepScreenOn(true)
@@ -276,7 +276,7 @@ private fun secondaryLine(s: Session): String {
 }
 
 @Composable
-private fun Summary(s: Session, onDone: () -> Unit) {
+internal fun Summary(s: Session, onDone: () -> Unit) {
     ScalingLazyColumn(Modifier.fillMaxSize()) {
         item { Text("Finished", style = MaterialTheme.typography.title2) }
         item { Text(s.workout.name, textAlign = TextAlign.Center) }

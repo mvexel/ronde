@@ -19,6 +19,14 @@ jobs:
         run: ./gradlew :shared:test
       - name: Build debug APKs
         run: ./gradlew :mobile:assembleDebug :wear:assembleDebug
+      - name: Screenshots
+        run: ./gradlew :mobile:recordPaparazziDebug :wear:recordPaparazziDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: |
+            mobile/src/test/snapshots/images/*.png
+            wear/src/test/snapshots/images/*.png
       - uses: actions/upload-artifact@v4
         with:
           name: apks

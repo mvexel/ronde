@@ -109,31 +109,36 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 val vm: MainViewModel = viewModel()
                 val st by vm.state.collectAsStateWithLifecycle()
-                Scaffold { pad ->
-                    Column(
-                        Modifier.padding(pad).padding(16.dp).fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text("intervals.icu → Watch", style = MaterialTheme.typography.headlineSmall)
-                        if (st.editing) {
-                            SettingsForm(st.settings, onSave = vm::save)
-                        } else {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Button(onClick = vm::sync, enabled = !st.busy) { Text("Sync now") }
-                                Spacer(Modifier.width(8.dp))
-                                TextButton(onClick = vm::edit) { Text("Settings") }
-                            }
-                            Text(
-                                if (st.watches.isEmpty()) "No watch connected (it will sync when it reconnects)"
-                                else "Watch: ${st.watches.joinToString()}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            st.status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(st.workouts, key = { it.id }) { WorkoutCard(it) }
-                            }
-                        }
-                    }
+                MainScreen(st, onSync = vm::sync, onEdit = vm::edit, onSave = vm::save)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun MainScreen(st: UiState, onSync: () -> Unit, onEdit: () -> Unit, onSave: (Settings) -> Unit) {
+    Scaffold { pad ->
+        Column(
+            Modifier.padding(pad).padding(16.dp).fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("intervals.icu → Watch", style = MaterialTheme.typography.headlineSmall)
+            if (st.editing) {
+                SettingsForm(st.settings, onSave = onSave)
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = onSync, enabled = !st.busy) { Text("Sync now") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onEdit) { Text("Settings") }
+                }
+                Text(
+                    if (st.watches.isEmpty()) "No watch connected (it will sync when it reconnects)"
+                    else "Watch: ${st.watches.joinToString()}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                st.status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(st.workouts, key = { it.id }) { WorkoutCard(it) }
                 }
             }
         }
