@@ -44,6 +44,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import net.mvexel.intervalswatch.shared.Metric
+import net.mvexel.intervalswatch.shared.ScreenSettings
+import net.mvexel.intervalswatch.shared.SettingsSync
+import net.mvexel.intervalswatch.shared.autoPauseFor
+import net.mvexel.intervalswatch.shared.withUnits
+import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.RecSample
 import net.mvexel.intervalswatch.shared.RecordingBuilder
 import net.mvexel.intervalswatch.shared.Sport
@@ -164,6 +169,10 @@ class ExerciseService : LifecycleService() {
     private val cadenceSeries = TimedValues<Double>()
     private val locationSeries = TimedValues<LocationData>()
     private var ongoing: OngoingActivity? = null
+
+    // Behaviour settings (B8), read once at workout start: the editor is not reachable during a session.
+    private var settings = ScreenSettings()
+    private var autoPauseOn = false
     private var ongoingStep = -2
     private var ongoingPaused = false
 
@@ -190,7 +199,8 @@ class ExerciseService : LifecycleService() {
         when (intent?.action) {
             ACTION_START -> {
                 val json = intent.getStringExtra(EXTRA_WORKOUT) ?: return START_NOT_STICKY
-                val workout = Sync.json.decodeFromString(Workout.serializer(), json)
+                settings = SettingsSync.decodeOrNull(getSharedPreferences("screen_settings", MODE_PRIVATE).getString(SettingsSync.KEY_JSON, null)) ?: ScreenSettings()
+                val workout = Sync.json.decodeFromString(Workout.serializer(), json).withUnits(settings)
                 goForeground(workout)
                 lifecycleScope.launch { begin(workout) }
             }
@@ -210,6 +220,7 @@ class ExerciseService : LifecycleService() {
     private suspend fun begin(workout: Workout) {
         ended = false
         finishing = false
+        autoPauseOn = false
         countdownStep = -1; hundredStep = -1; gpsWasReady = false; gpsEverLost = false; lastPmStatus = null
         RecordingStore.reset(applicationContext)
         val type = when (workout.sport) {
@@ -377,6 +388,7 @@ class ExerciseService : LifecycleService() {
             powerMeter?.watts?.value?.let { powerMean.add(it) }
         }
         syncWakeLock()
+        syncAutoPause(e)
         syncGoals(e)
         updateOngoing(e, e.progress(t, d).remainingSec)
         record(e, t, d)
@@ -393,6 +405,18 @@ class ExerciseService : LifecycleService() {
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "intervalswatch:exercise")
                 .also { it.acquire(4 * 60 * 60 * 1000L) }
         } else if (!active) releaseWakeLock()
+    }
+
+    /** Health Services auto-pause follows the step kind: on in a run's warm-up and cool-down only. */
+    private fun syncAutoPause(e: WorkoutEngine) {
+        if (state != ExerciseState.ACTIVE) return
+        val want = settings.autoPauseFor(e.workout.sport, e.current?.kind)
+        if (want == autoPauseOn) return
+        autoPauseOn = want
+        lifecycleScope.launch {
+            runCatching { client.overrideAutoPauseAndResumeForActiveExerciseAsync(want).await() }
+                .onFailure { Log.w(TAG, "auto-pause override", it) }
+        }
     }
 
     private fun releaseWakeLock() {
@@ -494,6 +518,7 @@ class ExerciseService : LifecycleService() {
     }
 
     private fun rangeAlert(e: WorkoutEngine, t: Double, d: Double) {
+        if (!settings.forSport(e.workout.sport).offTargetBuzz) return
         val step = e.current ?: return
         val target = step.primaryTarget ?: return
         val p = e.progress(t, d)
@@ -617,7 +642,10 @@ class ExerciseService : LifecycleService() {
 
     private fun vibrate(pattern: LongArray) {
         val v = getSystemService(VibratorManager::class.java)?.defaultVibrator ?: return
-        v.vibrate(VibrationEffect.createWaveform(pattern, -1))
+        val effect = if (settings.buzzStrength == BuzzStrength.STRONG) {
+            VibrationEffect.createWaveform(Haptics.scaled(pattern, settings.buzzStrength), Haptics.amplitudes(pattern, settings.buzzStrength), -1)
+        } else VibrationEffect.createWaveform(pattern, -1)
+        v.vibrate(effect)
     }
 
     override fun onDestroy() {

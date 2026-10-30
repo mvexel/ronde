@@ -203,8 +203,7 @@ private fun PositionTick(index: Int, count: Int) {
 /** Plays the GO pattern; Strong is pulses ×1.5 long at full amplitude (settings.md §4 row 6). */
 internal fun playBuzzSample(context: Context, strength: BuzzStrength) {
     val vibrator = context.getSystemService(Vibrator::class.java) ?: return
-    val strong = strength == BuzzStrength.STRONG
-    val timings = Haptics.GO.map { if (strong) (it * 1.5).toLong() else it }.toLongArray()
-    val amplitudes = IntArray(timings.size) { if (it % 2 == 1) (if (strong) 255 else 160) else 0 }
+    val timings = Haptics.scaled(Haptics.GO, strength)
+    val amplitudes = Haptics.amplitudes(Haptics.GO, strength)
     vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
 }

@@ -1,5 +1,6 @@
 package net.mvexel.intervalswatch.wear
 
+import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.StepKind
 
 /**
@@ -33,6 +34,14 @@ object Haptics {
     val PAGE_TICK = longArrayOf(0, 25)
 
     val DONE = longArrayOf(0, 300, 150, 300, 150, 300)
+
+    /** Strong = pulses 1.5x as long (gaps unchanged), at full amplitude; Normal is as listed. */
+    fun scaled(pattern: LongArray, strength: BuzzStrength): LongArray =
+        if (strength == BuzzStrength.STRONG) LongArray(pattern.size) { if (it % 2 == 1) (pattern[it] * 1.5).toLong() else pattern[it] } else pattern
+
+    /** Per-entry amplitudes for [pattern]: 0 in the gaps, 255 (Strong) or 160 (Normal) in pulses. */
+    fun amplitudes(pattern: LongArray, strength: BuzzStrength): IntArray =
+        IntArray(pattern.size) { if (it % 2 == 1) (if (strength == BuzzStrength.STRONG) 255 else 160) else 0 }
 
     fun stepChange(into: StepKind?) = if (into == StepKind.ACTIVE) GO else EASE
 
