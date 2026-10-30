@@ -144,6 +144,7 @@ class ExerciseService : LifecycleService() {
     private val locationSeries = TimedValues<LocationData>()
     private var ongoing: OngoingActivity? = null
     private var ongoingStep = -2
+    private var ongoingPaused = false
 
     // Alert bookkeeping
     private var outOfRangeSinceSec: Double? = null
@@ -298,7 +299,7 @@ class ExerciseService : LifecycleService() {
             if (e.finished && before < e.workout.steps.size) buzzDone() else buzzStepChange()
         }
         powerMeter?.watts?.value?.let { powerSeries.add(wallSec(), it) }
-        updateOngoing(e)
+        updateOngoing(e, e.progress(t, d).remainingSec)
         record(e, t, d)
         countdown(e, t, d)
         rangeAlert(e, t, d)
@@ -418,7 +419,7 @@ class ExerciseService : LifecycleService() {
         ongoing = OngoingActivity.Builder(applicationContext, NOTIFICATION_ID, nb)
             .setStaticIcon(android.R.drawable.ic_media_play)
             .setTouchIntent(open)
-            .setStatus(ongoingStatus(workout.name, SystemClock.elapsedRealtime()))
+            .setStatus(ongoingStatus(workout.name, null, false))
             .build()
             .also { it.apply(applicationContext) }
         val n = nb.build()
@@ -432,18 +433,27 @@ class ExerciseService : LifecycleService() {
         ServiceCompat.startForeground(this, NOTIFICATION_ID, n, types)
     }
 
-    private fun ongoingStatus(label: String, sinceElapsed: Long) = Status.Builder()
-        .addTemplate("#label# #time#")
-        .addPart("label", Status.TextPart(label))
-        .addPart("time", Status.StopwatchPart(sinceElapsed))
-        .build()
+    /** Watch-face chip text: "label m:ss", counting down by itself for timed steps. */
+    private fun ongoingStatus(label: String, remainingSec: Double?, paused: Boolean): Status {
+        val b = Status.Builder().addTemplate("#label# #time#").addPart("label", Status.TextPart(label))
+        val now = System.currentTimeMillis()
+        val time = if (remainingSec != null) {
+            val ms = (remainingSec * 1000).toLong()
+            if (paused) Status.TimerPart(now + ms, now, ms) else Status.TimerPart(now + ms)
+        } else {
+            Status.StopwatchPart(SystemClock.elapsedRealtime())
+        }
+        return b.addPart("time", time).build()
+    }
 
-    /** Keep the watch-face status on the current step. */
-    private fun updateOngoing(e: WorkoutEngine) {
-        if (e.index == ongoingStep) return
+    /** Keep the watch-face status on the current step and the pause state. */
+    private fun updateOngoing(e: WorkoutEngine, remainingSec: Double?) {
+        val paused = state?.isPaused == true
+        if (e.index == ongoingStep && paused == ongoingPaused) return
         ongoingStep = e.index
+        ongoingPaused = paused
         val label = e.current?.let { listOfNotNull(it.repeat, it.label).joinToString(" ") } ?: e.workout.name
-        ongoing?.update(applicationContext, ongoingStatus(label, SystemClock.elapsedRealtime()))
+        ongoing?.update(applicationContext, ongoingStatus(label, remainingSec, paused))
     }
 
     private fun hasPermission(p: String) =

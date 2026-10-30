@@ -338,16 +338,17 @@ internal fun AmbientWorkout(s: Session) {
                     listOfNotNull(step.repeat, step.label).joinToString("  "),
                     color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                // Only refreshed about once a minute, so whole minutes rather than a frozen m:ss.
+                // The target is the biggest thing; time left is whole minutes because the screen
+                // is only redrawn about once a minute (a frozen m:ss would look like a hang).
+                step.primaryTarget?.let {
+                    Text(Format.target(it, p.fraction, w.paceUnit), color = Color.White, fontSize = 30.sp, textAlign = TextAlign.Center)
+                }
                 val left = when {
-                    p.remainingSec != null -> "${kotlin.math.ceil(p.remainingSec!! / 60).toInt()} min"
-                    p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit)
+                    p.remainingSec != null -> "${kotlin.math.ceil(p.remainingSec!! / 60).toInt()} min left"
+                    p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit) + " left"
                     else -> "+" + Format.duration(p.elapsedSec)
                 }
-                Text(left, color = Color.White, fontSize = 34.sp)
-                step.primaryTarget?.let {
-                    Text(Format.target(it, p.fraction, w.paceUnit), color = Color.LightGray, fontSize = 14.sp)
-                }
+                Text(left, color = Color.LightGray, fontSize = 16.sp)
             }
         }
     }
