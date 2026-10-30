@@ -1,5 +1,6 @@
 package net.mvexel.intervalswatch.mobile
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
@@ -52,6 +53,18 @@ internal fun clearPending(prefs: MutablePreferences) {
 internal fun isLoginRedirect(uri: String?): Boolean =
     uri != null && uri.substringBefore('?').substringBefore('#') == OAuth.REDIRECT_URI
 
+/**
+ * Returns and clears the pending login if [uri]'s state matches it. A redirect with another state (forged or stale)
+ * leaves the pending login alone, so the real redirect still works.
+ */
+internal fun takeMatching(prefs: MutablePreferences, uri: String, now: Long): PendingLogin? {
+    val p = readPending(prefs, now) ?: run { clearPending(prefs); return null }
+    val r = OAuth.parseRedirect(uri, p.state)
+    if (r is RedirectResult.Failure && r.error == OAuthError.StateMismatch) return null
+    clearPending(prefs)
+    return p
+}
+
 /** Persists the login in progress in DataStore so it survives the app process dying while the user is in the browser. */
 class PendingLoginStore(private val context: Context, private val clock: () -> Long = System::currentTimeMillis) {
     suspend fun start(): PendingLogin {
@@ -70,6 +83,13 @@ class PendingLoginStore(private val context: Context, private val clock: () -> L
         return found
     }
 
+    /** Like [take], but a redirect whose state does not match leaves the pending login in place. */
+    suspend fun takeMatching(uri: String): PendingLogin? {
+        var found: PendingLogin? = null
+        context.loginStore.edit { found = takeMatching(it, uri, clock()) }
+        return found
+    }
+
     suspend fun peek(): PendingLogin? = readPending(context.loginStore.data.first(), clock())
 
     suspend fun cancel() {
@@ -77,8 +97,13 @@ class PendingLoginStore(private val context: Context, private val clock: () -> L
     }
 }
 
-/** Opens the authorize URL in a Custom Tab. */
-fun launchLoginTab(context: Context, p: PendingLogin) {
+/** Opens the authorize URL in a Custom Tab. Returns false if the device has no browser to open it. */
+fun launchLoginTab(context: Context, p: PendingLogin): Boolean {
     val url = OAuth.authorizeUrl(OAUTH_CLIENT_ID, p.state, OAuth.challenge(p.verifier))
-    CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url.toString()))
+    return try {
+        CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url.toString()))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
 }

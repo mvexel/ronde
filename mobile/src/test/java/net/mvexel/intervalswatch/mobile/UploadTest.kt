@@ -193,4 +193,17 @@ class UploadTest {
         assertTrue(f!!.retryable)
         assertTrue(f.authRejected)
     }
+
+    @Test fun oauth403IsAuthExpiredForSyncAndFlagsUpload() {
+        val oauth = Settings(token = "tok", authType = AuthType.OAUTH)
+        server.enqueue(MockResponse().setResponseCode(403))
+        val e = runCatching { runBlocking { api.plannedWorkouts(oauth) } }.exceptionOrNull()
+        assertTrue(e is AuthExpiredException)
+        server.enqueue(MockResponse().setResponseCode(403))
+        val file = File.createTempFile("1_Ride", ".fit").apply { writeBytes(fit) }
+        val failure = runBlocking { uploadRecordingFile(api, oauth, file) }!!
+        assertTrue(failure.authRejected)
+        assertTrue(failure.retryable)
+        file.delete()
+    }
 }

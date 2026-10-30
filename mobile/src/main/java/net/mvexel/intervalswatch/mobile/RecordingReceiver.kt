@@ -102,6 +102,6 @@ suspend fun uploadRecordingFile(api: IntervalsApi, settings: Settings, file: Fil
             RecordingProtocol.eventId(file.name),
         )
     }.exceptionOrNull()?.let {
-        UploadFailure(it.message ?: "upload failed", (it as? UploadHttpException)?.retryable ?: true, (it as? UploadHttpException)?.code == 401)
+        UploadFailure(it.message ?: "upload failed", (it as? UploadHttpException)?.retryable ?: true, (it as? UploadHttpException)?.let { e -> isAuthRejection(e.code, settings.authType) } == true)
     }
 }
