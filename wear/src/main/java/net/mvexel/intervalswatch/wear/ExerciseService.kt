@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.os.PowerManager
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.VibratorManager
@@ -20,7 +21,10 @@ import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.data.Availability
 import androidx.health.services.client.data.DataType
+import androidx.health.services.client.data.DataTypeCondition
+import androidx.health.services.client.data.ComparisonType
 import androidx.health.services.client.data.ExerciseConfig
+import androidx.health.services.client.data.ExerciseGoal
 import androidx.health.services.client.data.ExerciseLapSummary
 import androidx.health.services.client.data.ExerciseState
 import androidx.health.services.client.data.ExerciseType
@@ -151,6 +155,11 @@ class ExerciseService : LifecycleService() {
     private var outOfRangeSinceSec: Double? = null
     private var lastRangeAlertSec = -1000.0
     private var countdownStep = -1
+
+    // Screen-off timing: the CPU may doze between Health Services batches, so hold a partial wake lock
+    // while ACTIVE, and ask Health Services to call us back at each step boundary and at T-3.
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var goalsStep = -1
 
     override fun onCreate() {
         super.onCreate()
@@ -321,16 +330,55 @@ class ExerciseService : LifecycleService() {
         val before = e.index
         if (e.update(t, d) > 0) {
             outOfRangeSinceSec = null
+            Log.i(TAG, "LATENCY step ${e.index} late=${"%.2f".format(e.progress(t, d).elapsedSec)}s")
             if (e.finished && before < e.workout.steps.size) buzzDone() else buzzStepChange()
         }
         // With a live power meter there may be no HS point for this second (indoor, HR 0), and the
         // ticker is the only clock: sample here too. The builder merges samples of the same second.
         if (powerMeter?.watts?.value != null && state == ExerciseState.ACTIVE) recordAt(wallSec())
+        syncWakeLock()
+        syncGoals(e)
         updateOngoing(e, e.progress(t, d).remainingSec)
         record(e, t, d)
         countdown(e, t, d)
         rangeAlert(e, t, d)
         publish()
+    }
+
+    private fun syncWakeLock() {
+        val active = state == ExerciseState.ACTIVE && !finishing
+        if (active && wakeLock == null) {
+            wakeLock = getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "intervalswatch:exercise")
+                .also { it.acquire(4 * 60 * 60 * 1000L) }
+        } else if (!active) releaseWakeLock()
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.takeIf { it.isHeld }?.release()
+        wakeLock = null
+    }
+
+    /** One-time goals for the current step's end (and T-3), so Health Services wakes us on time. */
+    private fun syncGoals(e: WorkoutEngine) {
+        if (goalsStep == e.index || state != ExerciseState.ACTIVE) return
+        val step = e.current ?: return
+        goalsStep = e.index
+        val goals = ArrayList<ExerciseGoal<*>>()
+        step.durationSec?.let { dur ->
+            val end = e.stepStartSec + dur
+            for (at in listOf(end - 3.0, end)) if (at > activeSec()) goals += ExerciseGoal.createOneTimeGoal(
+                DataTypeCondition(DataType.ACTIVE_EXERCISE_DURATION_TOTAL, Math.ceil(at).toLong(), ComparisonType.GREATER_THAN_OR_EQUAL),
+            )
+        }
+        step.distanceM?.let { dist ->
+            goals += ExerciseGoal.createOneTimeGoal(
+                DataTypeCondition(DataType.DISTANCE_TOTAL, e.stepStartM + dist, ComparisonType.GREATER_THAN_OR_EQUAL),
+            )
+        }
+        lifecycleScope.launch {
+            goals.forEach { g -> runCatching { client.addGoalToActiveExerciseAsync(g).await() }.onFailure { Log.w(TAG, "goal", it) } }
+        }
     }
 
     private fun wallSec() = (SystemClock.elapsedRealtime() - recordStartElapsed) / 1000.0
@@ -416,6 +464,7 @@ class ExerciseService : LifecycleService() {
         if (finishing) return
         finishing = true
         ticker?.cancel()
+        releaseWakeLock()
         runCatching { client.endExerciseAsync().await() }
         runCatching { client.clearUpdateCallbackAsync(callback).await() }
         powerMeter?.stop()
@@ -497,6 +546,7 @@ class ExerciseService : LifecycleService() {
 
     override fun onDestroy() {
         ticker?.cancel()
+        releaseWakeLock()
         powerMeter?.stop()
         super.onDestroy()
     }
