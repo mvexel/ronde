@@ -119,6 +119,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, burnIn: Boolean) {
     val bundle by repo.bundle.collectAsStateWithLifecycle()
+    val phoneLoggedIn by repo.phoneLoggedIn.collectAsStateWithLifecycle()
     val session by ExerciseService.session.collectAsStateWithLifecycle()
     val save by RecordingStore.status.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -151,7 +152,7 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, bur
             }
             selected != null && picking -> PowerMeterPickerScreen(onBack = { picking = false })
             selected != null -> WorkoutDetail(selected!!, onPickPower = { picking = true }, onBack = { selected = null })
-            else -> WorkoutList(bundle?.workouts.orEmpty(), save) { selected = it }
+            else -> WorkoutList(bundle?.workouts.orEmpty(), save, phoneLoggedIn) { selected = it }
         }
     }
     if (s != null) content()
@@ -170,12 +171,20 @@ private fun App(repo: WorkoutRepository, ambient: Boolean, ambientTick: Int, bur
 }
 
 @Composable
-internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, onPick: (Workout) -> Unit) {
+internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phoneLoggedIn: Boolean = true, onPick: (Workout) -> Unit) {
     WatchList {
         item { Text("Workouts", style = MaterialTheme.typography.title3) }
         // Last upload still unresolved after a restart.
         if (save is SaveStatus.Failed) {
             item { Text(save.reason, fontSize = 11.sp, color = Rb.signal, textAlign = TextAlign.Center) }
+        }
+        if (!phoneLoggedIn) {
+            item {
+                Text(
+                    "Phone not logged in. Open Ronde on the phone and log in.",
+                    fontSize = 11.sp, color = Rb.signal, textAlign = TextAlign.Center,
+                )
+            }
         }
         if (workouts.isEmpty()) {
             item {

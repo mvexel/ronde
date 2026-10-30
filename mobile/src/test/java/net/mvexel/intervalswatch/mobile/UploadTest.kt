@@ -183,4 +183,14 @@ class UploadTest {
         runBlocking { logout(settings, api) {} }
         assertEquals(0, server.requestCount)
     }
+
+    @Test fun plannedWorkouts401IsAuthExpiredAndUploadStaysRetryable() {
+        server.enqueue(MockResponse().setResponseCode(401))
+        val e = runCatching { runBlocking { api.plannedWorkouts(settings) } }.exceptionOrNull()
+        assertTrue(e is AuthExpiredException)
+        server.enqueue(MockResponse().setResponseCode(401))
+        val f = runBlocking { uploadRecordingFile(api, settings, File.createTempFile("1_Ride", ".fit").apply { writeBytes(fit) }) }
+        assertTrue(f!!.retryable)
+        assertTrue(f.authRejected)
+    }
 }

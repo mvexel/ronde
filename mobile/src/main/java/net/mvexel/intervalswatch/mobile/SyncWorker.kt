@@ -17,7 +17,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val settings = SettingsStore(applicationContext).current()
         if (!settings.configured || !settings.autoSync) return Result.success()
         return runCatching { WatchSync.syncNow(applicationContext, settings) }
-            .fold({ Result.success() }, { Result.retry() })
+            .fold({ Result.success() }, { if (it is AuthExpiredException) Result.failure() else Result.retry() })
     }
 
     companion object {

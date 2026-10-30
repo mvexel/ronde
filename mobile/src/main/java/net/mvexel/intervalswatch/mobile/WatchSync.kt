@@ -23,6 +23,15 @@ object WatchSync {
         Wearable.getDataClient(context).putDataItem(request).await()
     }
 
+    /** Tells the watch whether the phone can sync. Carries no credential. */
+    suspend fun pushLoggedIn(context: Context, loggedIn: Boolean) {
+        val request = PutDataMapRequest.create(Sync.AUTH_PATH).apply {
+            dataMap.putBoolean(Sync.KEY_LOGGED_IN, loggedIn)
+            dataMap.putLong(Sync.KEY_SYNCED_AT, System.currentTimeMillis())
+        }.asPutDataRequest().setUrgent()
+        runCatching { Wearable.getDataClient(context).putDataItem(request).await() }
+    }
+
     suspend fun connectedWatches(context: Context): List<String> =
         runCatching {
             Wearable.getNodeClient(context).connectedNodes.await().map { it.displayName }
@@ -30,7 +39,13 @@ object WatchSync {
 
     /** Fetch from intervals.icu and push to the watch. Returns what was sent. */
     suspend fun syncNow(context: Context, settings: Settings): List<Workout> {
-        val workouts = IntervalsApi().plannedWorkouts(settings)
+        val workouts = try {
+            IntervalsApi().plannedWorkouts(settings)
+        } catch (e: AuthExpiredException) {
+            pushLoggedIn(context, false)
+            throw e
+        }
+        pushLoggedIn(context, true)
         push(context, workouts)
         return workouts
     }

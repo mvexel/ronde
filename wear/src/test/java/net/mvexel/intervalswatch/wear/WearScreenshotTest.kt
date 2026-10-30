@@ -61,6 +61,8 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
 
     @Test fun list() = snap { WorkoutList(Samples.workouts) {} }
 
+    @Test fun listPhoneLoggedOut() = snap { WorkoutList(emptyList(), phoneLoggedIn = false) {} }
+
     @Test fun rideInRange() = snap {
         ActiveWorkout(session(Samples.ride, 3, 312.0, power = 307.0, hr = 162.0, speed = 9.1))
     }

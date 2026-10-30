@@ -96,6 +96,10 @@ object Sync {
     const val KEY_JSON = "json"
     const val KEY_SYNCED_AT = "syncedAt"
 
+    /** Data item with only the phone's login state (never a credential): the watch shows "not logged in". */
+    const val AUTH_PATH = "/auth"
+    const val KEY_LOGGED_IN = "loggedIn"
+
     val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
 
     fun encode(bundle: WorkoutBundle): String = json.encodeToString(bundle)
