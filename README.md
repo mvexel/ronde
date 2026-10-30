@@ -57,3 +57,14 @@ Version 0.1 is untested on a real device so far.
 - [ ] Cadence from the sensor; HR strap over BLE.
 - [ ] Store the API key with Android Keystore rather than plain DataStore.
 - [ ] App icons.
+
+## Screenshots
+
+CI renders these with [Paparazzi](https://github.com/cashapp/paparazzi) (`./gradlew :wear:recordPaparazziDebug :mobile:recordPaparazziDebug`)
+and pushes them to the [`screenshots`](../../tree/screenshots) branch on every push to `main`.
+
+| | | |
+|---|---|---|
+| ![](../screenshots/watch/list.png) | ![](../screenshots/watch/rideInRange.png) | ![](../screenshots/watch/rideTooLow.png) |
+| ![](../screenshots/watch/runTooFast.png) | ![](../screenshots/watch/runDistanceStep.png) | ![](../screenshots/watch/paused.png) |
+| ![](../screenshots/phone/synced.png) | ![](../screenshots/phone/setup.png) | ![](../screenshots/watch/summary.png) |
