@@ -80,7 +80,13 @@ internal fun collapsedSteps(w: Workout): List<StepRowData> {
             i++
             continue
         }
-        val block = w.steps.drop(i).takeWhile { roundOf(it)?.second == total }
+        // The block runs while the round count stays "/total" and the round number never drops,
+        // so two back-to-back blocks of the same size ("1/2 2/2 1/2 2/2") stay two rows.
+        var prev = 0
+        val block = w.steps.drop(i).takeWhile { st ->
+            val r = roundOf(st)
+            (r != null && r.second == total && r.first >= prev).also { if (it) prev = r!!.first }
+        }
         val firstRound = roundOf(s)!!.first
         val round = block.takeWhile { roundOf(it)!!.first == firstRound }
         val parts = round.map { r ->

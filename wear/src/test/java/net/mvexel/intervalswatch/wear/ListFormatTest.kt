@@ -53,6 +53,12 @@ class ListFormatTest {
         assertEquals(true, rows[1].detail.startsWith("0:20 @ ") && rows[1].detail.endsWith(" / 1:00 easy"))
     }
 
+    @Test fun backToBackBlocksOfSameSizeStayApart() {
+        fun st(r: String) = WorkoutStep("Work", StepKind.ACTIVE, durationSec = 20, repeat = r)
+        val w = Workout(1, "t", Sport.RUN, startLocal = "2026-10-30T07:00:00", steps = listOf(st("1/2"), st("2/2"), st("1/2"), st("2/2")))
+        assertEquals(listOf("2×", "2×"), collapsedSteps(w).map { it.label })
+    }
+
     @Test fun notesAreTrimmed() {
         assertEquals(null, notesPreview("  "))
         assertEquals("keep it  relaxed".replace("  ", " "), notesPreview("keep it\n relaxed"))
