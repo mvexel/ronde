@@ -1,5 +1,6 @@
 package net.mvexel.intervalswatch.wear
 
+import net.mvexel.intervalswatch.wear.ui.isRep
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -87,6 +88,8 @@ data class Session(
     val avgPower: Double? = null,
     /** Per step index: true when the live value was in range for most of the step (Summary result ring). */
     val onTarget: Map<Int, Boolean> = emptyMap(),
+    /** Share of all work-step samples (steps with a target) that were in range, 0..100; null when none (ux S3). */
+    val workInTargetPct: Int? = null,
 ) {
     fun live(metric: Metric): Double? = when (metric) {
         Metric.POWER -> power
@@ -115,6 +118,7 @@ class ExerciseService : LifecycleService() {
         private const val ACTION_LAP = "lap"
         private const val ACTION_END = "end"
         private const val CHANNEL = "workout"
+        private const val WAKE_SCREEN_MS = 10_000L
         private const val NOTIFICATION_ID = 1
         private const val STALE_LOCATION_SEC = 10.0
         private const val STALE_SENSOR_SEC = 15.0
@@ -392,6 +396,7 @@ class ExerciseService : LifecycleService() {
             powerMeter?.watts?.value?.let { powerMean.add(it) }
         }
         syncWakeLock()
+        wakeScreen(e, t, d)
         syncAutoPause(e)
         syncGoals(e)
         updateOngoing(e, e.progress(t, d).remainingSec)
@@ -410,6 +415,30 @@ class ExerciseService : LifecycleService() {
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "intervalswatch:exercise")
                 .also { it.acquire(4 * 60 * 60 * 1000L) }
         } else if (!active) releaseWakeLock()
+    }
+
+    private var wakeStep = -1
+    private var wakeNearStep = -1
+
+    /**
+     * Turns the screen on around step changes (ux X4): at the start of each step and once in the last
+     * 10 s of a timed or distance step, so the new target shows without a wrist turn. Deprecated
+     * flags, but the only lever that wakes a dimmed screen from a service; if the OS refuses, the
+     * haptics (ux §7) carry the change alone. Not checked on a Pixel Watch yet.
+     */
+    @Suppress("DEPRECATION")
+    private fun wakeScreen(e: WorkoutEngine, t: Double, d: Double) {
+        if (state != ExerciseState.ACTIVE || finishing || e.finished) return
+        var wake = false
+        if (wakeStep != e.index) { wakeStep = e.index; wake = true }
+        val p = e.progress(t, d)
+        if (wakeNearStep != e.index && isNearEnd(p) && e.workout.steps.getOrNull(e.index + 1) != null) { wakeNearStep = e.index; wake = true }
+        if (!wake) return
+        runCatching {
+            getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "intervalswatch:stepwake")
+                .acquire(WAKE_SCREEN_MS)
+        }.onFailure { Log.w(TAG, "screen wake", it) }
     }
 
     /** Health Services auto-pause follows the step kind: on in a run's warm-up and cool-down only. */
@@ -573,6 +602,7 @@ class ExerciseService : LifecycleService() {
             avgHeartRate = hrMean.value,
             avgPower = powerMean.value,
             onTarget = rangeSamples.filterValues { it[1] > 0 }.mapValues { it.value[0] * 5 >= it.value[1] * 4 },
+            workInTargetPct = inTargetPercent(rangeSamples.filterKeys { e.workout.steps.getOrNull(it)?.isRep() == true }.values),
         )
     }
 

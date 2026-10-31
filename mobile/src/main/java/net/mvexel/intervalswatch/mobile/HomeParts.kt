@@ -85,20 +85,34 @@ fun StatusIcon(state: UploadState) {
     }
 }
 
-/** "Today", "Tomorrow", else "Thu 5". */
+/** "Today", "Tomorrow", else "Sun 2 Nov". */
 fun dayLabel(startLocal: String, today: LocalDate = LocalDate.now()): String {
     val d = runCatching { LocalDateTime.parse(startLocal).toLocalDate() }.getOrNull() ?: return startLocal.take(10)
     return when (d) {
         today -> "Today"
         today.plusDays(1) -> "Tomorrow"
-        else -> "${d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${d.dayOfMonth}"
+        else -> "${d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${d.dayOfMonth} ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())}"
     }
 }
 
-/** "Today · Run · 55 min" */
+/** [dayLabel] plus " · 07:00" when the plan has a start time (ux F3). */
+fun dayTimeLabel(startLocal: String, today: LocalDate = LocalDate.now()): String {
+    val time = runCatching { LocalDateTime.parse(startLocal).toLocalTime() }.getOrNull()
+    val at = if (time == null || time == java.time.LocalTime.MIDNIGHT) "" else " · %02d:%02d".format(time.hour, time.minute)
+    return dayLabel(startLocal, today) + at
+}
+
+fun sportIcon(sport: net.mvexel.intervalswatch.shared.Sport): String = when (sport) {
+    net.mvexel.intervalswatch.shared.Sport.RUN -> "🏃"
+    net.mvexel.intervalswatch.shared.Sport.RIDE -> "🚴"
+    net.mvexel.intervalswatch.shared.Sport.WALK -> "🚶"
+    else -> "•"
+}
+
+/** "Today · 07:00 · 🏃 Run · 55 min" */
 fun workoutMeta(w: Workout, today: LocalDate = LocalDate.now()): String = listOfNotNull(
-    dayLabel(w.startLocal, today),
-    w.sport.name.lowercase().replaceFirstChar { it.uppercase() } + if (w.indoor) " (indoor)" else "",
+    dayTimeLabel(w.startLocal, today),
+    sportIcon(w.sport) + " " + w.sport.name.lowercase().replaceFirstChar { it.uppercase() } + if (w.indoor) " (indoor)" else "",
     w.totalDurationSec?.let { "${(it + 30) / 60} min" },
 ).joinToString(" · ")
 

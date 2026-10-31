@@ -32,12 +32,15 @@ class HomePartsTest {
             step(StepKind.ACTIVE, 300), step(StepKind.REST, 120), step(StepKind.COOLDOWN, 300),
         ), totalDurationSec = 1740)
         assertEquals("10:00 · 5:00 · 2:00 · 5:00 …", planLine(w))
-        assertEquals("Today · Run · 29 min", workoutMeta(w, today))
+        assertEquals("Today · 07:00 · 🏃 Run · 29 min", workoutMeta(w, today))
     }
 
     @Test fun dayLabels() {
         assertEquals("Today", dayLabel("2026-10-30T07:00:00", today))
         assertEquals("Tomorrow", dayLabel("2026-10-31T07:00:00", today))
+        assertEquals("Mon 2 Nov", dayLabel("2026-11-02T07:00:00", today))
+        assertEquals("Mon 2 Nov · 07:00", dayTimeLabel("2026-11-02T07:00:00", today))
+        assertEquals("Mon 2 Nov", dayTimeLabel("2026-11-02T00:00:00", today))
     }
 
     @Test fun retryClearsFailedState() {

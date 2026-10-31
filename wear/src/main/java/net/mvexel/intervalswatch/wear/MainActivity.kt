@@ -272,7 +272,7 @@ internal fun WorkoutList(workouts: List<Workout>, save: SaveStatus? = null, phon
                     secondaryLabel = {
                         val day = workoutWhen(w, today)
                         val rest = listOfNotNull(
-                            w.sport.name.lowercase().replaceFirstChar { it.uppercase() } + if (w.indoor) " in" else "",
+                            w.sport.name.lowercase().replaceFirstChar { it.uppercase() } + if (w.indoor) " indoor" else "",
                             w.totalDurationSec?.let { Format.duration(it.toDouble()) },
                         ).joinToString(" · ")
                         Text(
@@ -433,7 +433,21 @@ private fun WorkoutSteps(w: Workout, onPickPower: () -> Unit, onScreens: (() -> 
                 )
             }
         }
-        items(w.steps.size) { i -> StepRow(w, w.steps[i]) }
+        val rows = collapsedSteps(w)
+        items(rows.size) { i -> StepRow(rows[i]) }
+        notesPreview(w.description)?.let { notes ->
+            item("notes") {
+                var more by remember { androidx.compose.runtime.mutableStateOf(false) }
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clickable { more = !more }) {
+                    Text("Notes", style = RbType.label, color = Rb.ink2)
+                    Text(
+                        if (more) w.description!!.trim() else notes, fontSize = 12.sp, color = Rb.ink,
+                        maxLines = if (more) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis,
+                    )
+                    if (!more && notes.endsWith("…")) Text("more", style = RbType.label, color = Rb.work)
+                }
+            }
+        }
         item {
             CompactButton(onClick = onClose, colors = ButtonDefaults.secondaryButtonColors()) { Text("←") }
         }
@@ -441,20 +455,10 @@ private fun WorkoutSteps(w: Workout, onPickPower: () -> Unit, onScreens: (() -> 
 }
 
 @Composable
-private fun StepRow(w: Workout, s: WorkoutStep) {
-    val length = when {
-        s.durationSec != null -> Format.duration(s.durationSec!!.toDouble())
-        s.distanceM != null -> Format.distance(s.distanceM!!, w.paceUnit)
-        else -> "lap"
-    }
-    val target = s.primaryTarget?.let { Format.target(it, 0.0, w.paceUnit, w.sport) } ?: ""
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)) {
-        Text(
-            listOfNotNull(s.repeat, s.label).joinToString(" "),
-            color = kindColor(s.kind), fontSize = 12.sp, modifier = Modifier.weight(1f),
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
-        Text("$length  $target", fontSize = 12.sp)
+private fun StepRow(row: StepRowData) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(row.label, color = kindColor(row.kind), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(row.detail, fontSize = 12.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
     }
 }
 
@@ -625,6 +629,7 @@ internal fun Summary(s: Session, save: SaveStatus?, onDone: () -> Unit) {
                 null -> Unit
             }
             if (work.isNotEmpty()) Text("$hits of ${work.size} reps on target", style = RbType.label, color = Rb.work, maxLines = 1)
+            s.workInTargetPct?.let { Text("Work in target $it%", style = RbType.label, color = Rb.ink2, maxLines = 1) }
             Text(
                 listOfNotNull(Format.duration(s.activeSec), s.distanceM.takeIf { it > 0 }?.let { Format.distance(it, w.paceUnit) }).joinToString(" · "),
                 style = RbType.partner, color = Rb.ink, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
