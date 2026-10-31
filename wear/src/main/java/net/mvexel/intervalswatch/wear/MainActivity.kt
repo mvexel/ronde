@@ -607,7 +607,14 @@ internal fun AmbientIdle() {
  */
 internal fun ambientAvgLine(s: Session): String? = when {
     s.paused -> "PAUSED"
+    s.workout.sport == Sport.RIDE -> s.stepAvgSpeed?.let { if (s.workout.paceUnit == PaceUnit.KM) "avg %.1f km/h".format(it * 3.6) else "avg %.1f mph".format(it * 3600 / 1609.344) }
     else -> s.stepAvgSpeed?.let { "avg ${Format.pace(it, s.workout.paceUnit)} ${Format.paceSuffix(s.workout.paceUnit)}" }
+}
+
+/** Splits "4:39–4:25 /km" before the unit so the ambient target never wraps inside a number. */
+internal fun ambientTargetParts(text: String): Pair<String, String?> {
+    val i = text.lastIndexOf(' ')
+    return if (i < 0) text to null else text.substring(0, i) to text.substring(i + 1)
 }
 
 /**
@@ -632,7 +639,9 @@ internal fun AmbientWorkout(s: Session, shift: Int = 0) {
                 // Time left is whole minutes because the screen is only redrawn about once a minute
                 // (a frozen m:ss would look like a hang).
                 step.primaryTarget?.let {
-                    Text(Format.target(it, p.fraction, w.paceUnit, w.sport), color = Rb.ink, fontSize = 32.sp, fontWeight = FontWeight.Light, textAlign = TextAlign.Center)
+                    val (range, unit) = ambientTargetParts(Format.target(it, p.fraction, w.paceUnit, w.sport))
+                    Text(range, color = Rb.ink, fontSize = if (range.length > 7) 26.sp else 32.sp, fontWeight = FontWeight.Light, textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
+                    unit?.let { u -> Text(u, color = Rb.ink2, fontSize = 16.sp, fontWeight = FontWeight.Light) }
                 }
                 ambientAvgLine(s)?.let { Text(it, color = Rb.ink2, fontSize = 18.sp, fontWeight = FontWeight.Light) }
                 val left = when {

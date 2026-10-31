@@ -100,7 +100,7 @@ internal fun controlsOpenAfterPause(paused: Boolean) = paused
  */
 @Composable
 internal fun PagedWorkout(s: Session, settings: ScreenSettings) {
-    val pager = androidx.compose.foundation.pager.rememberPagerState { 2 }
+    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = if (controlsOpenAfterPause(s.paused)) 1 else 0) { 2 }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var touch by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     LaunchedEffect(s.paused) { pager.animateScrollToPage(if (controlsOpenAfterPause(s.paused)) 1 else 0) }

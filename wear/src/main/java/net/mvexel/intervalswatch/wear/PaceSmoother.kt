@@ -2,7 +2,7 @@ package net.mvexel.intervalswatch.wear
 
 /**
  * Rolling mean of raw speed over the last W seconds (RF01 FR10 a). Samples are held until the next one
- * arrives, so batches delivered late land at their true times and zero speeds count. With less than W of
+ * arrives (at most 3 s), so batches delivered late land at their true times and zero speeds count. With less than W of
  * history it is the mean of what there is; with none, or nothing newer than [staleSec], null.
  */
 internal class PaceSmoother(private val staleSec: Double = 15.0) {
@@ -28,7 +28,9 @@ internal class PaceSmoother(private val staleSec: Double = 15.0) {
         var weighted = 0.0
         var covered = 0.0
         for (i in last downTo 0) {
-            val end = if (i == last) now else times[i + 1]
+            // A sample covers at most HOLD_SEC: Health Services sends nothing while paused, so an old sample must not
+            // stand in for the gap (it would drag the pace after a resume).
+            val end = minOf(if (i == last) now else times[i + 1], times[i] + HOLD_SEC)
             val start = maxOf(times[i], from)
             if (end > start) { weighted += values[i] * (end - start); covered += end - start }
             if (times[i] <= from) break
@@ -36,5 +38,6 @@ internal class PaceSmoother(private val staleSec: Double = 15.0) {
         return if (covered > 0.0) weighted / covered else values[last]
     }
 
-    private companion object { const val KEEP_SEC = 120.0 }
+    private companion object { const val KEEP_SEC = 120.0
+        const val HOLD_SEC = 3.0 }
 }
