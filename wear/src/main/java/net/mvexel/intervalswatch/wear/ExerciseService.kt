@@ -122,6 +122,7 @@ class ExerciseService : LifecycleService() {
         private const val NOTIFICATION_ID = 1
         private const val STALE_LOCATION_SEC = 10.0
         private const val STALE_SENSOR_SEC = 15.0
+        private const val IN_RANGE_HYSTERESIS_SEC = 5.0
 
         private val _session = MutableStateFlow<Session?>(null)
         val session: StateFlow<Session?> = _session.asStateFlow()
@@ -170,6 +171,7 @@ class ExerciseService : LifecycleService() {
     // time. Keep the latest values with those times so a sample gets the value from its own moment.
     private val hrSeries = TimedValues<Double>()
     private val speedSeries = TimedValues<Double>()
+    private val paceSmoother = PaceSmoother()
     private val distanceSeries = TimedValues<Double>()
     private val powerSeries = TimedValues<Double>()
     private val cadenceSeries = TimedValues<Double>()
@@ -184,6 +186,7 @@ class ExerciseService : LifecycleService() {
 
     // Alert bookkeeping
     private var outOfRangeSinceSec: Double? = null
+    private var inRangeSinceSec: Double? = null
     // Per step: [samples in range, samples with a live value] for the result ring.
     private val rangeSamples = mutableMapOf<Int, IntArray>()
     private var lastRangeAlertSec = -1000.0
@@ -246,6 +249,7 @@ class ExerciseService : LifecycleService() {
         hrMean.clear(); powerMean.clear(); rangeSamples.clear()
         pauseSpans.clear(); pausedSince = null; distanceAnchor = 0.0
         listOf(hrSeries, speedSeries, distanceSeries, powerSeries, cadenceSeries, locationSeries).forEach { it.clear() }
+        paceSmoother.clear()
         publish()
 
         try {
@@ -301,9 +305,10 @@ class ExerciseService : LifecycleService() {
                 cadenceSeries.add(wallOf(p.timeDurationFromBoot), p.value.toDouble()); cadence = p.value.toDouble(); times += wallOf(p.timeDurationFromBoot)
             }
             m.getData(DataType.SPEED).forEach { p ->
-                // Light smoothing; GPS speed is jumpy.
-                speed = speed?.let { it * 0.7 + p.value * 0.3 } ?: p.value
-                speedSeries.add(wallOf(p.timeDurationFromBoot), speed!!)
+                // Raw speed is recorded; the display and alerts use the rolling mean (PaceSmoother).
+                speed = p.value
+                speedSeries.add(wallOf(p.timeDurationFromBoot), p.value)
+                paceSmoother.add(wallOf(p.timeDurationFromBoot), p.value)
                 times += wallOf(p.timeDurationFromBoot)
             }
             // Distance: cumulative sum of the interval points (each with its own end time), anchored
@@ -565,15 +570,30 @@ class ExerciseService : LifecycleService() {
         val step = e.current ?: return
         val target = step.primaryTarget ?: return
         val p = e.progress(t, d)
-        if (p.elapsedSec < 15 || state != ExerciseState.ACTIVE) { outOfRangeSinceSec = null; return }
+        val windowSec = settings.forSport(e.workout.sport).paceWindowSec.toDouble()
+        // The smoothed value still holds the previous step for the first W seconds of a step.
+        if (p.elapsedSec < windowSec || state != ExerciseState.ACTIVE) { outOfRangeSinceSec = null; inRangeSinceSec = null; return }
         val value = session.value?.live(target.metric) ?: return
         val cmp = target.compare(value, p.fraction)
-        if (cmp == 0) { outOfRangeSinceSec = null; return }
+        if (cmp == 0) {
+            // Hysteresis: only a lasting return to range re-arms the out-of-range timer.
+            val back = inRangeSinceSec ?: t.also { inRangeSinceSec = it }
+            if (t - back >= IN_RANGE_HYSTERESIS_SEC) outOfRangeSinceSec = null
+            return
+        }
+        inRangeSinceSec = null
         val since = outOfRangeSinceSec ?: t.also { outOfRangeSinceSec = it }
         if (t - since >= 10 && t - lastRangeAlertSec >= 30) {
             lastRangeAlertSec = t
+            Log.i(TAG, "RANGE ALERT cmp=$cmp value=${"%.2f".format(value)} range=${target.low}..${target.high} metric=${target.metric}")
             vibrate(Haptics.rangeAlert(cmp))
         }
+    }
+
+    /** Rolling-mean speed for display, alerts and stats; the recording keeps raw speed. */
+    private fun smoothedSpeed(): Double? {
+        val sport = engine?.workout?.sport ?: return null
+        return paceSmoother.at(wallSec(), settings.forSport(sport).paceWindowSec.toDouble())
     }
 
     private fun publish() {
@@ -589,7 +609,7 @@ class ExerciseService : LifecycleService() {
             activeSec = t,
             distanceM = d,
             heartRate = heartRate,
-            speed = speed,
+            speed = smoothedSpeed(),
             power = powerMeter?.watts?.value,
             cadence = cadence,
             powerStatus = powerMeter?.status?.value,

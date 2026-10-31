@@ -41,6 +41,8 @@ data class SportSettings(
     val totalsFields: List<Field>,
     val workoutRingPage: Boolean = true,
     val offTargetBuzz: Boolean = true,
+    /** Rolling-mean window for displayed pace and range alerts: 15, 20 or 30 s (RF01 FR10 a). */
+    val paceWindowSec: Int = 20,
 ) {
     companion object {
         val RUN_DEFAULT = SportSettings(

@@ -20,11 +20,11 @@ object Haptics {
     /** Distance step, 100 m to go: one pulse. */
     val DISTANCE_100 = longArrayOf(0, 130)
 
-    /** Too low or too slow: two quick. */
-    val TOO_LOW = longArrayOf(0, 100, 100, 100)
+    /** Too low or too slow ("speed up"): a flutter of five very short pulses. */
+    val TOO_LOW = longArrayOf(0, 60, 60, 60, 60, 60, 60, 60, 60, 60)
 
-    /** Too high or too fast: three quick. */
-    val TOO_HIGH = longArrayOf(0, 100, 100, 100, 100, 100)
+    /** Too high or too fast ("ease off"): one medium-long pulse. */
+    val TOO_HIGH = longArrayOf(0, 350)
 
     /** Sensor lost: two medium pulses; regained: one short. */
     val SENSOR_LOST = longArrayOf(0, 250, 150, 250)

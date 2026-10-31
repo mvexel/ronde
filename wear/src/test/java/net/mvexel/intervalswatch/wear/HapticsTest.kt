@@ -26,10 +26,21 @@ class HapticsTest {
 
     @Test fun offTargetUsesShortPulsesOnly() {
         assertTrue(Haptics.TOO_LOW.drop(1).filterIndexed { i, _ -> i % 2 == 0 }.all { it <= 150 })
-        assertTrue(Haptics.TOO_HIGH.drop(1).filterIndexed { i, _ -> i % 2 == 0 }.all { it <= 150 })
         assertNotEquals(Haptics.TOO_LOW.toList(), Haptics.TOO_HIGH.toList())
         assertArrayEquals(Haptics.TOO_HIGH, Haptics.rangeAlert(1))
         assertArrayEquals(Haptics.TOO_LOW, Haptics.rangeAlert(-1))
+    }
+
+    @Test fun directionAndShape() {
+        // Pace too fast (speed above range) is cmp > 0: one long pulse; too slow: the flutter.
+        val fast = net.mvexel.intervalswatch.shared.Target(net.mvexel.intervalswatch.shared.Metric.PACE, 2.5, 3.0)
+        assertArrayEquals(Haptics.TOO_HIGH, Haptics.rangeAlert(fast.compare(3.5, 0.0)))
+        assertArrayEquals(Haptics.TOO_LOW, Haptics.rangeAlert(fast.compare(2.0, 0.0)))
+        assertArrayEquals(longArrayOf(0, 350), Haptics.TOO_HIGH)
+        assertEquals(5, Haptics.TOO_LOW.drop(1).filterIndexed { i, _ -> i % 2 == 0 }.size)
+        // Strong still leaves five distinct pulses (gaps unchanged).
+        val strong = Haptics.scaled(Haptics.TOO_LOW, net.mvexel.intervalswatch.shared.BuzzStrength.STRONG)
+        assertTrue(strong.filterIndexed { i, _ -> i % 2 == 0 && i > 0 }.all { it == 60L })
     }
 
     @Test fun countdownPulsesAreStrong() {

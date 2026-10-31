@@ -89,8 +89,8 @@ Long pulses mean a step change; short pulses mean "look at your target".
 | 1 long (600 ms) | Into recovery, warm-up or cool-down: ease off |
 | 3 pulses of 130 ms, 1 s apart | Countdown, 3 s before a timed step ends; for a distance step, about 3 s out at current speed |
 | 1 pulse (130 ms) | Distance step: 100 m to go (steps over 200 m) |
-| 2 quick | Too low / too slow |
-| 3 quick | Too high / too fast |
+| flutter: 5 very short (60 ms) | Too low / too slow: speed up |
+| 1 medium-long (350 ms) | Too high / too fast: ease off |
 | 2 medium (250 ms) | Power meter or GPS lost |
 | 1 short (120 ms) | Power meter or GPS back |
 | 3 long (300 ms) | Workout done |
