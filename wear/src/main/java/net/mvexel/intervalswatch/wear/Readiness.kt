@@ -83,4 +83,12 @@ class ReadinessProbe(private val ctx: Context) {
         runCatching { client.endExerciseAsync().await() }
         runCatching { client.clearUpdateCallbackAsync(callback).await() }
     }
+
+    /**
+     * Start pressed: drop this probe's callback before the service takes over, so it does not stay
+     * registered for the whole workout (T24 L3). The prepared warm-up itself survives.
+     */
+    suspend fun handOff() {
+        runCatching { client.clearUpdateCallbackAsync(callback).await() }
+    }
 }

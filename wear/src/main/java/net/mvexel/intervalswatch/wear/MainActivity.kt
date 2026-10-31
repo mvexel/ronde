@@ -354,7 +354,13 @@ private fun WorkoutDetail(w: Workout, onPickPower: () -> Unit, onScreens: (() ->
     val ready by probe.state.collectAsStateWithLifecycle()
     LaunchedEffect(w.id) { probe.start(w) }
     DisposableEffect(Unit) { onDispose { kotlinx.coroutines.GlobalScope.launch { probe.stop(started) } } }
-    DetailBezel(w, ready = ready, onStart = { started = true; launcher.launch(perms) }, onSteps = { listing = true })
+    val scope = rememberCoroutineScope()
+    DetailBezel(
+        w, ready = ready,
+        // T24 L3: release the probe's callback before the permission prompt hands over to the service.
+        onStart = { started = true; scope.launch { probe.handOff(); launcher.launch(perms) } },
+        onSteps = { listing = true },
+    )
 }
 
 /** The workout ring is the bezel; the crown scrubs its highlight and the line under Start describes that step (ux D1, D3). */
@@ -438,13 +444,16 @@ private fun WorkoutSteps(w: Workout, onPickPower: () -> Unit, onScreens: (() -> 
         notesPreview(w.description)?.let { notes ->
             item("notes") {
                 var more by remember { androidx.compose.runtime.mutableStateOf(false) }
+                // T24 L2: "more" follows what the 3 lines actually cut, not only the 120-char cap.
+                var clipped by remember { androidx.compose.runtime.mutableStateOf(false) }
                 Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clickable { more = !more }) {
                     Text("Notes", style = RbType.label, color = Rb.ink2)
                     Text(
                         if (more) w.description!!.trim() else notes, fontSize = 12.sp, color = Rb.ink,
                         maxLines = if (more) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { clipped = it.hasVisualOverflow },
                     )
-                    if (!more && notes.endsWith("…")) Text("more", style = RbType.label, color = Rb.work)
+                    if (!more && (clipped || notes.endsWith("…"))) Text("more", style = RbType.label, color = Rb.work)
                 }
             }
         }
