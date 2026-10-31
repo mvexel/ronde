@@ -26,6 +26,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -87,9 +88,40 @@ internal fun ringNowDeg(segments: List<RingSegment>, stepIndex: Int, fraction: D
     return seg.startDeg + seg.sweepDeg * fraction.coerceIn(0.0, 1.0).toFloat()
 }
 
-/** The pages of an active workout, turned with the crown; Step snaps back at each step change and when "Next" starts. */
+/** How long Controls stays up after the last touch before it returns to the workout pages. */
+private const val CONTROLS_RETURN_MS = 10_000L
+
+/** Whether the pager sits on Controls after a pause change: Pause opens it (Resume and end), Resume closes it. */
+internal fun controlsOpenAfterPause(paused: Boolean) = paused
+
+/**
+ * Two horizontal pages: the workout pages (crown) and, one swipe left, Controls. Pause snaps to Controls, Resume back;
+ * Controls returns by itself 10 s after the last touch.
+ */
 @Composable
 internal fun PagedWorkout(s: Session, settings: ScreenSettings) {
+    val pager = androidx.compose.foundation.pager.rememberPagerState { 2 }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var touch by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    LaunchedEffect(s.paused) { pager.animateScrollToPage(if (controlsOpenAfterPause(s.paused)) 1 else 0) }
+    LaunchedEffect(s.stepIndex) { if (pager.currentPage != 0 && !s.paused) pager.animateScrollToPage(0) }
+    // Auto-return: 10 s after the last touch on Controls (an end-hold keeps touching, so it is never cut short); not while paused.
+    LaunchedEffect(pager.currentPage, touch, s.paused) {
+        if (pager.currentPage == 1 && !s.paused) { kotlinx.coroutines.delay(CONTROLS_RETURN_MS); pager.animateScrollToPage(0) }
+    }
+    androidx.compose.foundation.pager.HorizontalPager(
+        pager,
+        Modifier.fillMaxSize().pointerInput(Unit) {
+            awaitPointerEventScope { while (true) { awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial); touch = System.nanoTime() } }
+        },
+    ) { i ->
+        if (i == 0) WorkoutPages(s, settings, crown = pager.currentPage == 0) else ControlsPage(s)
+    }
+}
+
+/** The pages of an active workout, turned with the crown; Step snaps back at each step change and when "Next" starts. */
+@Composable
+internal fun WorkoutPages(s: Session, settings: ScreenSettings, crown: Boolean = true) {
     val ctx = LocalContext.current
     val pages = pagesFor(settings.forSport(s.workout.sport))
     var page by remember { mutableStateOf(WatchPage.STEP) }
@@ -101,7 +133,7 @@ internal fun PagedWorkout(s: Session, settings: ScreenSettings) {
     LaunchedEffect(s.stepIndex, nextNear) {
         if (page != WatchPage.STEP) { page = WatchPage.STEP; pager.reset() }
     }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    LaunchedEffect(crown) { if (crown) runCatching { focus.requestFocus() } }
 
     val shown = if (page in pages) page else WatchPage.STEP
     Box(

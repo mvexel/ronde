@@ -112,9 +112,9 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
 
     @Test fun workoutRingPage() = snap { WorkoutRingPage(session(Samples.workouts[0], 1, 120.0)) }
 
-    @Test fun controlsOnTap() = snap {
-        ActiveWorkout(clock = "14:05", s = session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8), controlsInitiallyUp = true)
-    }
+    @Test fun controlsPage() = snap { ControlsPage(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8)) }
+
+    @Test fun controlsPagePaused() = snap { ControlsPage(session(Samples.ride, 3, 312.0, hr = 140.0, paused = true)) }
 
     @Test fun ambientRunAvg() = snap {
         AmbientWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8))

@@ -1,26 +1,18 @@
 package net.mvexel.intervalswatch.wear
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -33,7 +25,6 @@ import androidx.wear.compose.foundation.CurvedTextStyle
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.curvedText
-import kotlinx.coroutines.delay
 import net.mvexel.intervalswatch.shared.Availability
 import net.mvexel.intervalswatch.shared.Field
 import net.mvexel.intervalswatch.shared.Format
@@ -50,9 +41,6 @@ import net.mvexel.intervalswatch.wear.ui.RbType
 import net.mvexel.intervalswatch.wear.ui.kindColor
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-
-/** How long the controls stay up after a tap (settings.md §3.2). */
-private const val CONTROLS_MS = 4000L
 
 private val clockFormat = DateTimeFormatter.ofPattern("H:mm")
 
@@ -148,29 +136,20 @@ internal fun fieldWaiting(s: Session, field: Field): String = when (field) {
 
 private fun fieldText(s: Session, field: Field, clock: String): String = fieldValue(s, field, clock) ?: fieldWaiting(s, field)
 
-/** The Step page: target-led dial (settings.md §2, visual-design.md §5.3). Controls appear on tap. */
+/** The Step page: target-led dial (settings.md §2, visual-design.md §5.3). Data only: the controls are on the page to its left (ControlsPage.kt), except Lap on lap-ended steps. */
 @Composable
 internal fun ActiveWorkout(
     s: Session,
     settings: ScreenSettings = ScreenSettings(),
     clock: String = clockNow(),
-    controlsInitiallyUp: Boolean = false,
 ) {
     val ctx = LocalContext.current
     val w = s.workout
     val step = s.step
     val p = s.progress
 
-    var lastTap by remember { mutableLongStateOf(0L) }
-    // Counts as shown for 4 s after the latest tap; a new tap restarts the timer.
-    var controlsUp by remember { androidx.compose.runtime.mutableStateOf(controlsInitiallyUp) }
-    LaunchedEffect(lastTap) {
-        if (lastTap != 0L) { controlsUp = true; delay(CONTROLS_MS); controlsUp = false }
-    }
-
     Box(
-        Modifier.fillMaxSize().background(Rb.ground)
-            .pointerInput(s.paused) { if (!s.paused) detectTapGestures(onTap = { lastTap = System.nanoTime() }) },
+        Modifier.fillMaxSize().background(Rb.ground),
         contentAlignment = Alignment.Center,
     ) {
         if (step == null) {
@@ -189,7 +168,7 @@ internal fun ActiveWorkout(
         val slots = resolveSlots(step, w.sport, s.availability(), settings)
         val nextNear = !s.paused && isNearEnd(p) && s.next != null
         val lapAlways = step.endsOnLap && s.next != null && !s.paused
-        val showControls = !s.paused && (controlsUp || lapAlways)
+        val showControls = lapAlways
         val numbers = if (s.paused) 0.5f else 1f
         val window = settings.forSport(w.sport).paceWindowSec
 
@@ -210,7 +189,7 @@ internal fun ActiveWorkout(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(Modifier.alpha(numbers), horizontalAlignment = Alignment.CenterHorizontally) {
-                // Partner: hidden (not removed) while the controls are up, so nothing shifts.
+                // Partner: hidden (not removed) while the Lap button is up, so nothing shifts.
                 Box(Modifier.alpha(if (showControls) 0f else 1f)) {
                     Text(fieldText(s, slots.partner, clock), style = RbType.partner, color = Rb.ink, maxLines = 1)
                 }
@@ -220,7 +199,7 @@ internal fun ActiveWorkout(
             // Lower half: target line and flanks, or the controls over them.
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.TopCenter) {
                 Column(
-                    Modifier.alpha(if (showControls || s.paused) 0f else 1f),
+                    Modifier.alpha(if (showControls) 0f else if (s.paused) 0.5f else 1f),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     TargetLine(s, nextNear)
@@ -229,10 +208,7 @@ internal fun ActiveWorkout(
                         Flank(s, slots.flankRight, clock, window)
                     }
                 }
-                when {
-                    s.paused -> PausedControls()
-                    showControls -> Controls(showPause = controlsUp, hasNext = s.next != null, lapLabel = if (step.endsOnLap) "Lap" else "Skip")
-                }
+                if (showControls) LapButton()
             }
         }
 
@@ -326,28 +302,3 @@ private fun Flank(s: Session, field: Field, clock: String, windowSec: Int) {
     }
 }
 
-/** Pause (filled ink) and Lap/Skip (surface; on a lap-ended step Lap is the filled one), 52 dp, 16 dp apart, with 11 sp captions. */
-@Composable
-private fun Controls(showPause: Boolean, hasNext: Boolean, lapLabel: String) {
-    val ctx = LocalContext.current
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-        val lapIsPlan = lapLabel == "Lap"
-        if (showPause) RoundButton(onClick = { ExerciseService.pause(ctx) }, secondary = lapIsPlan, caption = "pause") { Text("❚❚") }
-        if (hasNext) RoundButton(onClick = { ExerciseService.lap(ctx) }, secondary = !lapIsPlan, caption = if (lapIsPlan) "lap" else "next step") {
-            Text(lapLabel, fontSize = 14.sp, maxLines = 1)
-        }
-    }
-}
-
-/** Paused: ▶ resume (filled ink) and hold-to-end, always visible, with captions. */
-@Composable
-private fun PausedControls() {
-    val ctx = LocalContext.current
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top, modifier = Modifier.offset(y = (-4).dp)) {
-        RoundButton(onClick = { ExerciseService.resume(ctx) }, caption = "resume") { Text("▶") }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            HoldToEnd { ExerciseService.end(ctx) }
-            Text("hold to end", style = RbType.label, color = Rb.ink2, maxLines = 1)
-        }
-    }
-}
