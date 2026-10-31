@@ -20,6 +20,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- T24 L1: ACQUIRE_CAUSES_WAKEUP from the exercise service needs this on API 34+ to turn the screen on at step changes. -->
+    <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
 
     <application
         android:allowBackup="false"
