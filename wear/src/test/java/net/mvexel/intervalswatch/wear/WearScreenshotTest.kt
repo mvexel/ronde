@@ -82,6 +82,14 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
         ActiveWorkout(clock = "14:05", s = session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8))
     }
 
+    @Test fun runInRangeGauge() = snap {
+        ActiveWorkout(clock = "14:05", s = session(Samples.run, 1, 431.0, hr = 160.0, speed = 3.7, stepAvg = 3.65))
+    }
+
+    @Test fun runSlowGauge() = snap {
+        ActiveWorkout(clock = "14:05", s = session(Samples.run, 1, 431.0, hr = 150.0, speed = 3.2, stepAvg = 3.5))
+    }
+
     private val hrRun get() = Samples.run.copy(steps = listOf(
         WorkoutStep("Tempo", StepKind.ACTIVE, durationSec = 600, targets = listOf(Target(Metric.HEART_RATE, 160.0, 170.0)), primary = Metric.HEART_RATE, repeat = "2/4"),
         Samples.run.steps[0],

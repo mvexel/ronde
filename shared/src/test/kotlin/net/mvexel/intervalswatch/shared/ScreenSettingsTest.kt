@@ -110,6 +110,21 @@ class ScreenSettingsTest {
         }
     }
 
+    @Test fun runAndWalkNeverShowSpeed() {
+        val fields = Field.entries.filter { it.selectable }
+        val steps = listOf(paceStep(), hrStep(), powerStep(), openStep(), lapStep())
+        val availabilities = (0 until 16).map { b -> Availability(b and 1 != 0, b and 2 != 0, b and 4 != 0, b and 8 != 0) }
+        for (sport in listOf(Sport.RUN, Sport.WALK)) for (big in BigNumber.entries) for (l in fields) for (r in fields) for (b in fields) {
+            val p = SportSettings.RUN_DEFAULT.copy(bigNumber = big, flankLeft = l, flankRight = r, bottomEdge = b)
+            val s = defaults.copy(run = p, ride = p)
+            for (step in steps) for (a in availabilities) {
+                val slots = resolveSlots(step, sport, a, s)
+                val all = listOf(slots.hero, slots.partner, slots.flankLeft, slots.flankRight, slots.bottomEdge)
+                assertFalse("SPEED on $sport: $slots from $p", Field.SPEED in all)
+            }
+        }
+    }
+
     @Test fun walkAndOtherUseRunProfile() {
         assertEquals(defaults.run, defaults.forSport(Sport.WALK))
         assertEquals(defaults.run, defaults.forSport(Sport.OTHER))

@@ -45,6 +45,7 @@ import net.mvexel.intervalswatch.shared.resolveSlots
 import net.mvexel.intervalswatch.wear.ui.Rb
 import net.mvexel.intervalswatch.wear.ui.HEART
 import net.mvexel.intervalswatch.wear.ui.HeartText
+import net.mvexel.intervalswatch.wear.ui.RangeGauge
 import net.mvexel.intervalswatch.wear.ui.RbType
 import net.mvexel.intervalswatch.wear.ui.kindColor
 import java.time.LocalTime
@@ -190,6 +191,7 @@ internal fun ActiveWorkout(
         val lapAlways = step.endsOnLap && s.next != null && !s.paused
         val showControls = !s.paused && (controlsUp || lapAlways)
         val numbers = if (s.paused) 0.5f else 1f
+        val window = settings.forSport(w.sport).paceWindowSec
 
         // Top edge: "2/4 TEMPO" in the kind colour, or the PAUSED pill.
         CurvedLayout(anchor = 270f) {
@@ -213,6 +215,7 @@ internal fun ActiveWorkout(
                     Text(fieldText(s, slots.partner, clock), style = RbType.partner, color = Rb.ink, maxLines = 1)
                 }
                 Hero(s, slots.hero, clock)
+                Gauge(s, slots.hero)
             }
             // Lower half: target line and flanks, or the controls over them.
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.TopCenter) {
@@ -221,9 +224,9 @@ internal fun ActiveWorkout(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     TargetLine(s, nextNear)
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Flank(s, slots.flankLeft, clock)
-                        Flank(s, slots.flankRight, clock)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 30.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Flank(s, slots.flankLeft, clock, window)
+                        Flank(s, slots.flankRight, clock, window)
                     }
                 }
                 when {
@@ -261,7 +264,7 @@ private fun Hero(s: Session, field: Field, clock: String) {
     val value = fieldValue(s, field, clock)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-            value ?: fieldWaiting(s, field), style = RbType.hero, maxLines = 1,
+            value ?: fieldWaiting(s, field), style = RbType.hero.copy(fontWeight = FontWeight.Bold), maxLines = 1,
             color = when {
                 value == null -> Rb.ink3
                 offTarget -> Rb.ground
@@ -278,6 +281,21 @@ private fun Hero(s: Session, field: Field, clock: String) {
     }
 }
 
+/** Range gauge under a live hero, when the primary target is a range with a live value. */
+@Composable
+private fun Gauge(s: Session, hero: Field) {
+    val target = s.step?.primaryTarget ?: return
+    if (hero == Field.TIME_LEFT || s.paused) return
+    val value = s.live(target.metric)
+    val cmp = value?.let { target.compare(it, s.progress.fraction) }
+    val avg = if (target.metric == Metric.PACE) s.stepAvgSpeed else null
+    RangeGauge(
+        range = target.rangeAt(s.progress.fraction), value = value, stepAvg = avg,
+        color = if (cmp == null || cmp == 0) s.step?.let { kindColor(it.kind) } ?: Rb.ink else Rb.signal,
+        modifier = Modifier.padding(top = 2.dp),
+    )
+}
+
 /** Target range, or "Next: …" in the last 10 s / 100 m. */
 @Composable
 private fun TargetLine(s: Session, nextNear: Boolean) {
@@ -292,11 +310,19 @@ private fun TargetLine(s: Session, nextNear: Boolean) {
 
 /** One user slot on a side of the dial: 11 sp label above an 18 sp value. */
 @Composable
-private fun Flank(s: Session, field: Field, clock: String) {
+private fun Flank(s: Session, field: Field, clock: String, windowSec: Int) {
+    // The step average is the number to compare against the gauge: bigger, tinted by range once the step is a window old.
+    val promoted = field == Field.STEP_AVG_PACE
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        HeartText(fieldLabel(s, field).ifEmpty { " " }, RbType.label, Rb.ink2)
+        HeartText(fieldLabel(s, field).ifEmpty { " " }, RbType.label, if (promoted) Rb.ink else Rb.ink2)
         val value = fieldValue(s, field, clock)
-        Text(value ?: fieldWaiting(s, field), style = RbType.field, color = if (value == null) Rb.ink3 else Rb.ink, maxLines = 1, textAlign = TextAlign.Center)
+        val target = s.step?.primaryTarget
+        val avgCmp = if (promoted && target?.metric == Metric.PACE && s.progress.elapsedSec >= windowSec) s.stepAvgSpeed?.let { target.compare(it, s.progress.fraction) } else null
+        Text(
+            value ?: fieldWaiting(s, field), style = if (promoted) RbType.field.copy(fontSize = 22.sp, fontWeight = FontWeight.Bold) else RbType.field,
+            color = when { value == null -> Rb.ink3; avgCmp != null && avgCmp != 0 -> Rb.signal; else -> Rb.ink },
+            maxLines = 1, textAlign = TextAlign.Center,
+        )
     }
 }
 

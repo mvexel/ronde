@@ -137,7 +137,8 @@ fun resolveSlots(
         val ok = wanted.offeredFor(sport) && availability.has(wanted) && wanted !in occupied
         // Indoors (no pace) with HR, Total time and Clock already on screen the four backups run out:
         // Step time always has a value, and only past that does a slot repeat what it asked for.
-        val chosen = if (ok) wanted else (backups(sport) + Field.STEP_TIME).firstOrNull { it !in occupied && availability.has(it) } ?: wanted
+        val chosen = if (ok) wanted else (backups(sport) + Field.STEP_TIME).firstOrNull { it !in occupied && availability.has(it) }
+            ?: wanted.takeIf { it.offeredFor(sport) } ?: Field.STEP_TIME  // never a field the sport must not show (km/h on a Run)
         occupied += chosen
         return chosen
     }
