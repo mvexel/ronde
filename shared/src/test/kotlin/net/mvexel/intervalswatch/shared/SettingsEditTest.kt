@@ -51,3 +51,19 @@ class SettingsEditPhoneTest {
         assertEquals(BuzzStrength.NORMAL, SettingsSync.decodeTestBuzz("junk".toByteArray()))
     }
 }
+
+class PaceWindowTest {
+    @Test fun cyclesThroughAllowedValues() {
+        assertEquals(20, nextPaceWindow(15))
+        assertEquals(30, nextPaceWindow(20))
+        assertEquals(15, nextPaceWindow(30))
+        assertEquals(20, nextPaceWindow(7))
+    }
+
+    @Test fun rejectsOtherValuesAndSyncs() {
+        assertEquals(20, SportSettings.RUN_DEFAULT.withPaceWindow(45).paceWindowSec)
+        val s = ScreenSettings().withSport(Sport.RIDE) { it.withPaceWindow(30) }
+        assertEquals(30, ScreenSettings.fromJson(s.toJson()).ride.paceWindowSec)
+        assertEquals(20, s.run.paceWindowSec)
+    }
+}

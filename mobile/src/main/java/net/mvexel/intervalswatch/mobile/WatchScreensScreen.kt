@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.mvexel.intervalswatch.shared.BigNumber
 import net.mvexel.intervalswatch.shared.BuzzStrength
+import net.mvexel.intervalswatch.shared.PACE_WINDOWS
+import net.mvexel.intervalswatch.shared.withPaceWindow
 import net.mvexel.intervalswatch.shared.Field
 import net.mvexel.intervalswatch.shared.ScreenSettings
 import net.mvexel.intervalswatch.shared.Slot
@@ -98,6 +100,10 @@ internal fun WatchScreensScreen(
         }
         ToggleRow("Workout ring page", profile.workoutRingPage) { v -> editSport { it.copy(workoutRingPage = v) } }
         ToggleRow("Off-target buzz", profile.offTargetBuzz) { v -> editSport { it.copy(offTargetBuzz = v) } }
+        Segmented(
+            PACE_WINDOWS.map { "$it s" to it }, profile.paceWindowSec,
+            label = "Pace smoothing window",
+        ) { v -> editSport { it.withPaceWindow(v) } }
 
         HorizontalDivider()
         Section("All sports")

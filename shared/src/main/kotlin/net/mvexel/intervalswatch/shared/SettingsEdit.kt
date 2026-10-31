@@ -64,3 +64,14 @@ fun Field.sample(sport: Sport): String = when (this) {
     Field.WORKOUT_LEFT -> "18:40"
     Field.TIME_LEFT -> "2:10"
 }
+
+/** The allowed pace windows (RF01 FR10 a). */
+val PACE_WINDOWS: List<Int> = listOf(15, 20, 30)
+
+/** Next window in [PACE_WINDOWS], wrapping; an unknown value snaps to the default 20. */
+fun nextPaceWindow(current: Int): Int {
+    val i = PACE_WINDOWS.indexOf(current)
+    return if (i < 0) 20 else PACE_WINDOWS[(i + 1) % PACE_WINDOWS.size]
+}
+
+fun SportSettings.withPaceWindow(sec: Int): SportSettings = copy(paceWindowSec = if (sec in PACE_WINDOWS) sec else 20)

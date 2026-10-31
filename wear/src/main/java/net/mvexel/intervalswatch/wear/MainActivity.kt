@@ -19,6 +19,8 @@ import kotlin.math.roundToInt
 import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.withSlot
 import net.mvexel.intervalswatch.shared.withSport
+import net.mvexel.intervalswatch.shared.withPaceWindow
+import net.mvexel.intervalswatch.shared.nextPaceWindow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.runtime.CompositionLocalProvider
@@ -198,6 +200,7 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
                 settings,
                 onEditSport = { editSport = it },
                 onToggleOffTarget = { sport -> scope.launch { screenSettings.update { it.withSport(sport) { p -> p.copy(offTargetBuzz = !p.offTargetBuzz) } } } },
+                onPaceWindow = { sport -> scope.launch { screenSettings.update { it.withSport(sport) { p -> p.withPaceWindow(nextPaceWindow(p.paceWindowSec)) } } } },
                 onBuzzStrength = {
                     val next = if (settings.buzzStrength == BuzzStrength.STRONG) BuzzStrength.NORMAL else BuzzStrength.STRONG
                     playBuzzSample(context, next)

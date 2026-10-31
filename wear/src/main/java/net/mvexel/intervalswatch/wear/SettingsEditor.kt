@@ -65,6 +65,7 @@ internal fun SettingsList(
     onEditSport: (Sport) -> Unit,
     onToggleOffTarget: (Sport) -> Unit,
     onBuzzStrength: () -> Unit,
+    onPaceWindow: (Sport) -> Unit = {},
 ) {
     WatchList {
         item { Text("Settings", style = MaterialTheme.typography.title3) }
@@ -75,6 +76,8 @@ internal fun SettingsList(
         }
         item("offRun") { OffTargetToggle("Run off-target buzz", settings.run.offTargetBuzz) { onToggleOffTarget(Sport.RUN) } }
         item("offRide") { OffTargetToggle("Ride off-target buzz", settings.ride.offTargetBuzz) { onToggleOffTarget(Sport.RIDE) } }
+        item("winRun") { SettingsChip("Run pace window", "${settings.run.paceWindowSec} s") { onPaceWindow(Sport.RUN) } }
+        item("winRide") { SettingsChip("Ride pace window", "${settings.ride.paceWindowSec} s") { onPaceWindow(Sport.RIDE) } }
         item("more") { Text("More on your phone", fontSize = 11.sp, color = Rb.ink2, textAlign = TextAlign.Center) }
     }
 }
