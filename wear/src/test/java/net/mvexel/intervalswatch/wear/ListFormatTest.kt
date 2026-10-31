@@ -38,4 +38,35 @@ class ListFormatTest {
         assertEquals(false, syncStale(now - 23 * 3_600_000, now))
         assertEquals(true, syncStale(now - 25 * 3_600_000, now))
     }
+
+    @Test fun repeatBlockCollapsesToOneRow() {
+        val t = net.mvexel.intervalswatch.shared.Target(net.mvexel.intervalswatch.shared.Metric.PACE, 3.0, 3.3)
+        fun st(label: String, kind: StepKind, sec: Int, r: String?) = WorkoutStep(label, kind, durationSec = sec, repeat = r, targets = if (kind == StepKind.ACTIVE) listOf(t) else emptyList())
+        val w = Workout(1, "t", Sport.RUN, startLocal = "2026-10-30T07:00:00", steps = listOf(
+            st("Warm up", StepKind.WARMUP, 600, null),
+            st("Work", StepKind.ACTIVE, 20, "1/2"), st("Easy", StepKind.REST, 60, "1/2"),
+            st("Work", StepKind.ACTIVE, 20, "2/2"), st("Easy", StepKind.REST, 60, "2/2"),
+        ))
+        val rows = collapsedSteps(w)
+        assertEquals(2, rows.size)
+        assertEquals("2×", rows[1].label)
+        assertEquals(true, rows[1].detail.startsWith("0:20 @ ") && rows[1].detail.endsWith(" / 1:00 easy"))
+    }
+
+    @Test fun backToBackBlocksOfSameSizeStayApart() {
+        fun st(r: String) = WorkoutStep("Work", StepKind.ACTIVE, durationSec = 20, repeat = r)
+        val w = Workout(1, "t", Sport.RUN, startLocal = "2026-10-30T07:00:00", steps = listOf(st("1/2"), st("2/2"), st("1/2"), st("2/2")))
+        assertEquals(listOf("2×", "2×"), collapsedSteps(w).map { it.label })
+    }
+
+    @Test fun notesAreTrimmed() {
+        assertEquals(null, notesPreview("  "))
+        assertEquals("keep it  relaxed".replace("  ", " "), notesPreview("keep it\n relaxed"))
+        assertEquals(11, notesPreview("x".repeat(50), 10)!!.length)
+    }
+
+    @Test fun inTargetShare() {
+        assertEquals(null, inTargetPercent(emptyList()))
+        assertEquals(75, inTargetPercent(listOf(intArrayOf(45, 60), intArrayOf(15, 20))))
+    }
 }
