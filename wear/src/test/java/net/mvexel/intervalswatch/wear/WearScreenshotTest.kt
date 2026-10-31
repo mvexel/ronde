@@ -120,6 +120,10 @@ abstract class WearScreenshotBase(device: DeviceConfig) {
         AmbientWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8))
     }
 
+    @Test fun ambientRunPaused() = snap {
+        AmbientWorkout(session(Samples.run, 1, 431.0, hr = 171.0, speed = 3.95, stepAvg = 3.8, paused = true))
+    }
+
     @Test fun runDistanceStep() = snap {
         ActiveWorkout(clock = "14:05", s = session(Samples.run, 0, null, remainingM = 1240.0, hr = 138.0, speed = 3.02))
     }

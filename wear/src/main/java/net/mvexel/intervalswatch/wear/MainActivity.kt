@@ -4,7 +4,9 @@ import android.Manifest
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -115,7 +117,11 @@ class MainActivity : ComponentActivity() {
             ambient.value = true
             ambientTick.value++
         }
-        override fun onExitAmbient() { ambient.value = false }
+        override fun onExitAmbient() {
+            ambient.value = false
+            logWake("exit")
+            lifecycleScope.launch { delay(1000); logWake("exit+1s") }
+        }
         override fun onUpdateAmbient() { ambientTick.value++ }
     }
 
@@ -133,6 +139,14 @@ class MainActivity : ComponentActivity() {
         }
         lifecycle.addObserver(AmbientLifecycleObserver(this, ambientCallback))
         setContent { RunbumTheme { App(repo, screenSettings, ambient.value, ambientTick.value, burnIn.value) } }
+    }
+
+    // Wake log (FR10 g): the pace the step page shows, at exit from ambient and 1 s later. Checks outdoors
+    // that the first frame after wake is already right.
+    private fun logWake(point: String) {
+        val s = ExerciseService.session.value
+        val pace = if (s == null) "none" else s.speed?.let { Format.pace(it, s.workout.paceUnit) } ?: "--:--"
+        Log.i("MainActivity", "WAKE $point pace=$pace step=${s?.stepIndex} paused=${s?.paused}")
     }
 
     override fun onStart() {
@@ -588,6 +602,15 @@ internal fun AmbientIdle() {
 }
 
 /**
+ * The line between the target and the minutes left (FR10 e): the step's average pace, labelled "avg" because the
+ * ambient screen is only redrawn about once a minute; PAUSED while paused; null when there is no average yet.
+ */
+internal fun ambientAvgLine(s: Session): String? = when {
+    s.paused -> "PAUSED"
+    else -> s.stepAvgSpeed?.let { "avg ${Format.pace(it, s.workout.paceUnit)} ${Format.paceSuffix(s.workout.paceUnit)}" }
+}
+
+/**
  * Dimmed, low-power view (ux X2): hairline workout ring, the target range as the biggest thing in Light weight,
  * minutes left. No fills, no live value, no buttons.
  */
@@ -611,6 +634,7 @@ internal fun AmbientWorkout(s: Session, shift: Int = 0) {
                 step.primaryTarget?.let {
                     Text(Format.target(it, p.fraction, w.paceUnit, w.sport), color = Rb.ink, fontSize = 32.sp, fontWeight = FontWeight.Light, textAlign = TextAlign.Center)
                 }
+                ambientAvgLine(s)?.let { Text(it, color = Rb.ink2, fontSize = 18.sp, fontWeight = FontWeight.Light) }
                 val left = when {
                     p.remainingSec != null -> "${kotlin.math.ceil(p.remainingSec!! / 60).toInt()} min left"
                     p.remainingM != null -> Format.distance(p.remainingM!!, w.paceUnit) + " left"
