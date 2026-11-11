@@ -102,3 +102,6 @@ abstract class PacedScreenshotBase(device: DeviceConfig) {
 
 class PacedScreenshot384Test : PacedScreenshotBase(DeviceConfig.WEAR_OS_SMALL_ROUND)
 class PacedScreenshot456Test : PacedScreenshotBase(DeviceConfig.WEAR_OS_SMALL_ROUND.copy(screenWidth = 456, screenHeight = 456))
+
+/** LARGE mode: font scale 1.3 selects the large layout (no flanks, labels or HR). */
+class PacedScreenshotLargeTest : PacedScreenshotBase(DeviceConfig.WEAR_OS_SMALL_ROUND.copy(fontScale = 1.3f))

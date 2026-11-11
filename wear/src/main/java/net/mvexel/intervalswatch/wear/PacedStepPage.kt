@@ -280,7 +280,7 @@ private fun PacedDisc(s: Session, settings: ScreenSettings, large: Boolean) {
             if (large) { /* LARGE: no labels, flanks or HR */ }
 
             // Hero
-            Hero(s, mode, state, drawnSKm, rep != null, rows.heroY, unit)
+            Hero(s, mode, state, drawnSKm, rows.heroY, unit, large)
 
             // Row 4
             val row4 = rows.row4Y
@@ -428,7 +428,7 @@ private fun Cell(cx: Float, label: String, value: String, color: Color) {
 }
 
 @Composable
-private fun Hero(s: Session, mode: PacedMode, state: JudgeState, drawnSKm: Double?, rest: Boolean, y: Float, unit: PaceUnit) {
+private fun Hero(s: Session, mode: PacedMode, state: JudgeState, drawnSKm: Double?, y: Float, unit: PaceUnit, large: Boolean) {
     if (state == JudgeState.GPS_WAIT && mode == PacedMode.PACED) {
         T("GPS...", PT.gps, Rb.ink3, Modifier.atBaseline(96f, y))
         return
@@ -437,7 +437,7 @@ private fun Hero(s: Session, mode: PacedMode, state: JudgeState, drawnSKm: Doubl
     val text = if (timeHero) timeLeftText(s) else drawnSKm?.let { paceText(it, unit) } ?: s.judge?.displaySKm?.let { paceText(it, unit) } ?: "--:--"
     val dim = !timeHero && (state == JudgeState.SETTLING || state == JudgeState.WEAK || drawnSKm == null)
     BaselineRow(listOf(3.dp), centreFirst = true, modifier = Modifier.atBaseline(96f, y)) {
-        T(text, PT.hero, if (dim) Rb.ink3 else Rb.ink)
+        T(text, if (large) ts(56f, 700, -0.02f) else PT.hero, if (dim) Rb.ink3 else Rb.ink)
         when {
             timeHero -> T("left", PT.heroUnit, Rb.ink3)
             state == JudgeState.WEAK -> Column { T("weak", PT.weak, Rb.ink2); T("GPS", PT.weak, Rb.ink2) }
