@@ -14,11 +14,25 @@ interface ActivityDao {
     @Query("SELECT * FROM activities WHERE id = :id")
     fun observe(id: String): Flow<ActivityEntity?>
 
+    @Query("SELECT * FROM activities WHERE id = :id")
+    suspend fun get(id: String): ActivityEntity?
+
+    /** Upsert (not REPLACE), so cached streams and detail rows survive a list refresh. */
     @Upsert
     suspend fun upsertAll(activities: List<ActivityEntity>)
 
     @Query("DELETE FROM activities WHERE id = :id")
     suspend fun delete(id: String)
+
+    /** Ids starting on or after [from] and before [until] (ISO local date or date-time strings compare in order). */
+    @Query("SELECT id FROM activities WHERE start_local >= :from AND start_local < :until")
+    suspend fun idsBetween(from: String, until: String): List<String>
+
+    @Query("DELETE FROM activities WHERE id IN (:ids)")
+    suspend fun deleteIds(ids: List<String>)
+
+    @Query("DELETE FROM activities")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -26,9 +40,38 @@ interface ActivityStreamsDao {
     @Query("SELECT * FROM activity_streams WHERE activity_id = :activityId")
     fun observe(activityId: String): Flow<ActivityStreamsEntity?>
 
+    @Query("SELECT * FROM activity_streams WHERE activity_id = :activityId")
+    suspend fun get(activityId: String): ActivityStreamsEntity?
+
     @Upsert
     suspend fun upsert(streams: ActivityStreamsEntity)
+
+    @Query("DELETE FROM activity_streams WHERE activity_id = :activityId")
+    suspend fun delete(activityId: String)
 }
+
+@Dao
+interface ActivityDetailDao {
+    @Query("SELECT * FROM activity_details WHERE activity_id = :activityId")
+    suspend fun get(activityId: String): ActivityDetailEntity?
+
+    @Upsert
+    suspend fun upsert(detail: ActivityDetailEntity)
+}
+
+@Dao
+interface SyncStateDao {
+    @Query("SELECT value FROM sync_state WHERE `key` = :key")
+    suspend fun get(key: String): String?
+
+    @Upsert
+    suspend fun put(entry: SyncStateEntity)
+
+    @Query("DELETE FROM sync_state")
+    suspend fun clear()
+}
+
+suspend fun SyncStateDao.put(key: String, value: String) = put(SyncStateEntity(key, value))
 
 @Dao
 interface PlannedWorkoutPrefsDao {

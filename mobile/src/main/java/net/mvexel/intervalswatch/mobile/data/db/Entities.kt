@@ -30,7 +30,27 @@ data class ActivityEntity(
     @ColumnInfo(name = "is_ronde") val isRonde: Boolean = false,
     /** Epoch millis of the fetch that wrote this row. */
     @ColumnInfo(name = "fetched_at") val fetchedAt: Long,
-)
+    @ColumnInfo(name = "max_hr") val maxHr: Int? = null,
+    /**
+     * Recording device, e.g. "Garmin Forerunner 265". intervals.icu's API terms require Garmin attribution wherever
+     * Garmin-sourced data is shown: see [isGarmin].
+     */
+    @ColumnInfo(name = "device_name") val deviceName: String? = null,
+    /** intervals.icu `source`, e.g. UPLOAD, OAUTH_CLIENT, GARMIN_CONNECT, STRAVA. */
+    val source: String? = null,
+    /**
+     * False for Strava stubs: intervals.icu may not pass Strava data on through its API, so only the date (and maybe
+     * type and name) is known. Show "Strava activity, details not available"; there is nothing more to fetch.
+     */
+    @ColumnInfo(name = "details_available", defaultValue = "1") val detailsAvailable: Boolean = true,
+    /** intervals.icu's `analyzed` time; when it changes, cached detail data is stale. */
+    val analyzed: String? = null,
+    /** Comma separated intervals.icu `stream_types`, e.g. "time,heartrate,latlng"; null when unknown. */
+    @ColumnInfo(name = "stream_types") val streamTypes: String? = null,
+) {
+    /** Garmin attribution is required for these (intervals.icu API terms 1.1). */
+    val isGarmin: Boolean get() = deviceName?.contains("garmin", ignoreCase = true) == true || source.equals("GARMIN_CONNECT", ignoreCase = true)
+}
 
 /** Ronde uploads carry `external_id=intervalswatch-<epoch>` (RecordingProtocol.externalId). */
 fun isRondeExternalId(externalId: String?): Boolean = externalId?.startsWith("intervalswatch-") == true
@@ -56,6 +76,8 @@ class ActivityStreamsEntity(
     /** Metres from start. */
     val distance: ByteArray? = null,
     val latlng: ByteArray? = null,
+    /** rpm, or what intervals.icu reports for runs. */
+    val cadence: ByteArray? = null,
 )
 
 /** Decoded view of [ActivityStreamsEntity]. */
@@ -67,6 +89,7 @@ class ActivityStreams(
     val watts: DoubleArray? = null,
     val distance: DoubleArray? = null,
     val latlng: DoubleArray? = null,
+    val cadence: DoubleArray? = null,
 ) {
     val samples: Int get() = time?.size ?: 0
     val hasMap: Boolean get() = (latlng?.size ?: 0) >= 2
@@ -76,12 +99,52 @@ fun ActivityStreamsEntity.decode() = ActivityStreams(
     activityId,
     time?.let(StreamCodec::decode), velocity?.let(StreamCodec::decode), heartrate?.let(StreamCodec::decode),
     watts?.let(StreamCodec::decode), distance?.let(StreamCodec::decode), latlng?.let(StreamCodec::decode),
+    cadence?.let(StreamCodec::decode),
 )
 
 fun ActivityStreams.encode() = ActivityStreamsEntity(
     activityId,
     time?.let(StreamCodec::encode), velocity?.let(StreamCodec::encode), heartrate?.let(StreamCodec::encode),
     watts?.let(StreamCodec::encode), distance?.let(StreamCodec::encode), latlng?.let(StreamCodec::encode),
+    cadence?.let(StreamCodec::encode),
+)
+
+/**
+ * The non-stream half of an activity's cached detail. A row here means detail was fetched (streams, if any, are in
+ * [ActivityStreamsEntity]). Lists are stored as text: see ActivityDetailCodec.
+ */
+@Entity(
+    tableName = "activity_details",
+    foreignKeys = [
+        ForeignKey(entity = ActivityEntity::class, parentColumns = ["id"], childColumns = ["activity_id"], onDelete = ForeignKey.CASCADE),
+    ],
+)
+data class ActivityDetailEntity(
+    @PrimaryKey @ColumnInfo(name = "activity_id") val activityId: String,
+    /** [ActivityEntity.analyzed] when this was fetched. */
+    val analyzed: String?,
+    /** [SOURCE_INTERVALS] or [SOURCE_RECORDING] (the FIT file the watch sent, kept on the phone). */
+    val source: String,
+    /** Step or interval spans, "start,end;start,end" in seconds from the start. */
+    val boundaries: String? = null,
+    /** Pauses, same format. */
+    val pauses: String? = null,
+    @ColumnInfo(name = "planned_event_id") val plannedEventId: Long? = null,
+    /** JSON list of shared WorkoutStep. */
+    @ColumnInfo(name = "planned_steps") val plannedSteps: String? = null,
+    @ColumnInfo(name = "fetched_at") val fetchedAt: Long,
+) {
+    companion object {
+        const val SOURCE_INTERVALS = "intervals"
+        const val SOURCE_RECORDING = "recording"
+    }
+}
+
+/** Small key/value store for sync bookkeeping (last refresh, backfill cursor). */
+@Entity(tableName = "sync_state")
+data class SyncStateEntity(
+    @PrimaryKey val key: String,
+    val value: String,
 )
 
 /** The user's per-workout choices on the Plan tab, keyed by intervals.icu event id. */

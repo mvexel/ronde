@@ -4,7 +4,6 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import net.mvexel.intervalswatch.mobile.data.activity.ActivityRemoteSource
 import net.mvexel.intervalswatch.mobile.data.activity.RoomActivityRepository
 import net.mvexel.intervalswatch.mobile.data.db.ActivityEntity
 import net.mvexel.intervalswatch.mobile.data.db.ActivityStreams
@@ -62,10 +61,7 @@ class DaoTest {
     }
 
     @Test fun repositoryRefreshStoresWhatTheRemoteReturns() = runBlocking {
-        val remote = object : ActivityRemoteSource {
-            override suspend fun recentActivities() = listOf(activity("i5", "2026-11-05T07:00:00"))
-            override suspend fun streams(activityId: String): ActivityStreams? = null
-        }
+        val remote = FakeHistoryRemote(listOf(icu("i5", java.time.LocalDate.now().toString() + "T07:00:00")))
         val repo = RoomActivityRepository(db.activities(), db.streams(), remote)
         repo.refresh()
         assertEquals(listOf("i5"), repo.activities().first().map { it.id })

@@ -1,6 +1,7 @@
 package net.mvexel.intervalswatch.mobile
 
 import android.content.Context
+import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -17,9 +18,15 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     override suspend fun doWork(): Result {
         val settings = SettingsStore(applicationContext).current()
         if (!settings.configured || !settings.autoSync) return Result.success()
-        val hidden = AppContainer.from(applicationContext).prefsDao.hiddenIds()
-        return runCatching { WatchSync.syncNow(applicationContext, settings, hidden) }
-            .fold({ Result.success() }, { if (it is AuthExpiredException) Result.failure() else Result.retry() })
+        val container = AppContainer.from(applicationContext)
+        val hidden = container.prefsDao.hiddenIds()
+        val error = runCatching { WatchSync.syncNow(applicationContext, settings, hidden) }.exceptionOrNull()
+        if (error is AuthExpiredException) return Result.failure()
+        // History: a refresh when the last one is old, plus one page of older-history backfill (at most 2 calls).
+        // Best effort: a failure here waits for the next run instead of retrying the watch sync.
+        runCatching { container.activityRepository.backgroundSync() }
+            .onFailure { Log.w("SyncWorker", "history sync: ${it.javaClass.simpleName}") }
+        return if (error == null) Result.success() else Result.retry()
     }
 
     companion object {
