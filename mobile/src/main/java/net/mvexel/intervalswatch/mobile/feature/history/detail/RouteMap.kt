@@ -1,6 +1,7 @@
 package net.mvexel.intervalswatch.mobile.feature.history.detail
 
 import android.content.Context
+import android.view.Gravity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,6 +10,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -41,6 +45,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -52,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.view.doOnLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -83,10 +90,20 @@ import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import kotlin.math.cos
 
-/** Shown on every map, thumbnail and full screen. OpenFreeMap asks for its own credit as well. */
-internal const val MAP_ATTRIBUTION = "OpenFreeMap © OpenMapTiles © OpenStreetMap contributors"
+/**
+ * The credit line under the thumbnail (the full-screen map has MapLibre's attribution button, fed by the style's
+ * source attribution). OSM's credit comes first and is never cut: the line wraps instead. OpenFreeMap asks for its own credit.
+ */
+internal const val MAP_ATTRIBUTION = "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap"
+internal const val MAP_ATTRIBUTION_URL = "https://www.openstreetmap.org/copyright"
 
-/** The Route card: a non-interactive thumbnail; tap opens an interactive full-screen map. */
+/** Space left around the route on each side, as a fraction of the map's width/height, so the streets around it show. */
+internal const val ROUTE_FRAME_PAD = 0.18f
+
+/** Closest the framing zooms, so a short loop still shows its neighbourhood (z15.5 is a few blocks across). */
+private const val ROUTE_MAX_FRAME_ZOOM = 15.5
+
+/** The Route card: a square, non-interactive thumbnail with the credit line under it; tap opens an interactive full-screen map. */
 @Composable
 internal fun RouteMapCard(route: RouteDrawing, caption: String?) {
     var expanded by rememberSaveable { mutableStateOf(false) }
@@ -98,13 +115,16 @@ internal fun RouteMapCard(route: RouteDrawing, caption: String?) {
                 if (caption != null) Text(caption, style = MaterialTheme.typography.bodySmall, color = p.ink3)
             }
             Spacer(Modifier.height(10.dp))
-            Box(Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp)).background(p.mapLand)) {
+            // Square at phone width; on wide screens capped in height (it then reads about 4:3 or wider).
+            Box(
+                Modifier.fillMaxWidth().heightIn(max = 440.dp).aspectRatio(1f)
+                    .clip(RoundedCornerShape(12.dp)).background(p.mapLand),
+            ) {
                 RouteMapView(route, interactive = false, Modifier.fillMaxSize())
                 // Swallow touches on the thumbnail so the page scrolls and a tap expands.
                 Box(Modifier.fillMaxSize().clickable(onClickLabel = "Expand map") { expanded = true })
-                Attribution(Modifier.align(Alignment.BottomEnd))
             }
-            Spacer(Modifier.height(8.dp))
+            Attribution()
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 val kinds = route.segments.mapNotNull { it.kind }.toSet()
                 if (StepKind.ACTIVE in kinds) RouteKey(p.work, "work")
@@ -121,19 +141,24 @@ internal fun RouteMapCard(route: RouteDrawing, caption: String?) {
                 FilledTonalIconButton(onClick = { expanded = false }, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
                     Icon(Icons.Filled.Close, contentDescription = "Close map")
                 }
-                Attribution(Modifier.align(Alignment.BottomEnd))
             }
         }
     }
 }
 
+/** One small ink3 line under the map (never over it); wraps rather than ellipsizes. Opens OSM's copyright page. */
 @Composable
-private fun Attribution(modifier: Modifier) = Text(
-    MAP_ATTRIBUTION,
-    style = TextStyle(fontSize = 9.sp),
-    color = MaterialTheme.colorScheme.onSurfaceVariant,
-    modifier = modifier.background(RondeTheme.colors.mapLand.copy(alpha = 0.85f), RoundedCornerShape(topStart = 6.dp)).padding(horizontal = 5.dp, vertical = 2.dp),
-)
+private fun Attribution() {
+    val uri = LocalUriHandler.current
+    Text(
+        MAP_ATTRIBUTION,
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Normal),
+        color = RondeTheme.colors.ink3,
+        modifier = Modifier.fillMaxWidth()
+            .clickable(role = Role.Button, onClickLabel = "Open OpenStreetMap copyright") { uri.openUri(MAP_ATTRIBUTION_URL) }
+            .padding(vertical = 6.dp),
+    )
+}
 
 @Composable
 private fun RouteKey(color: Color, text: String) = Row(verticalAlignment = Alignment.CenterVertically) {
@@ -172,7 +197,7 @@ private fun RouteMapView(route: RouteDrawing, interactive: Boolean, modifier: Mo
         }
     }
     AndroidView(
-        factory = { mapView.also { v -> v.getMapAsync { map -> RondeMaps.show(map, route, p, v.resources.displayMetrics.density) } } },
+        factory = { mapView.also { v -> v.getMapAsync { map -> RondeMaps.show(v, map, route, p) } } },
         modifier = modifier.semantics { contentDescription = desc },
     )
 }
@@ -194,15 +219,18 @@ private object RondeMaps {
         }
         val options = MapLibreMapOptions.createFromAttributes(context)
             .textureMode(true) // draws inside a scrolling Compose list without SurfaceView z-order issues
-            .attributionEnabled(false) // our own visible text attribution sits on top
-            .logoEnabled(true)
+            // MapLibre's logo is optional under its BSD licence. The thumbnail credits the data in a line under the
+            // map; the full-screen map keeps the standard compact (i) button, which lists the style's source credits.
+            .logoEnabled(false)
+            .attributionEnabled(interactive)
+            .attributionGravity(Gravity.BOTTOM or Gravity.END)
             .compassEnabled(false)
         return MapView(context, options).apply { onCreate(null) }.also { v ->
             v.getMapAsync { m -> m.uiSettings.setAllGesturesEnabled(interactive); m.uiSettings.isRotateGesturesEnabled = false }
         }
     }
 
-    fun show(map: MapLibreMap, route: RouteDrawing, p: RondeColors, density: Float) {
+    fun show(view: MapView, map: MapLibreMap, route: RouteDrawing, p: RondeColors) {
         val asset = if (p.isDark) "asset://map/ronde_route_dark.json" else "asset://map/ronde_route_light.json"
         map.setStyle(Style.Builder().fromUri(asset)) { style ->
             val lines = route.segments.map { seg ->
@@ -259,7 +287,14 @@ private object RondeMaps {
             )
             val b = DetailModel.bounds(route.all)
             val bounds = LatLngBounds.Builder().include(LatLng(b[0], b[1])).include(LatLng(b[2], b[3])).build()
-            map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, (28 * density).toInt()))
+            // Frame on the laid-out size: ROUTE_FRAME_PAD of the view on every side, then back off to a neighbourhood
+            // view if the route is so short that the bounds would zoom in past ROUTE_MAX_FRAME_ZOOM.
+            view.doOnLayout { v ->
+                val px = (v.width * ROUTE_FRAME_PAD).toInt()
+                val py = (v.height * ROUTE_FRAME_PAD).toInt()
+                map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, px, py, px, py))
+                if (map.cameraPosition.zoom > ROUTE_MAX_FRAME_ZOOM) map.moveCamera(CameraUpdateFactory.zoomTo(ROUTE_MAX_FRAME_ZOOM))
+            }
         }
     }
 }
@@ -272,17 +307,21 @@ private fun RouteSketch(route: RouteDrawing, modifier: Modifier) {
     val numStyle = TextStyle(fontFamily = RondeCondensed, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = p.work)
     val other = p.routeNeutral
     Canvas(modifier) {
-        // A faint street grid so the thumbnail reads as a map.
+        // A park, a water edge and a street grid in the map tokens, so the stand-in reads as the real map.
+        drawRect(p.mapPark, Offset(0f, size.height * 0.62f), Size(size.width * 0.3f, size.height * 0.38f))
         val step = 26.dp.toPx()
         var gx = step / 2
         while (gx < size.width) { drawLine(p.mapMinor, Offset(gx, 0f), Offset(gx, size.height), 3.dp.toPx()); gx += step }
         var gy = step / 2
         while (gy < size.height) { drawLine(p.mapMinor, Offset(0f, gy), Offset(size.width, gy), 3.dp.toPx()); gy += step }
-        val b = DetailModel.bounds(route.all, pad = 0.12)
+        drawRect(p.mapWater, Offset(size.width * 0.84f, 0f), Size(size.width * 0.16f, size.height * 0.45f))
+        // Same framing as the real map: ROUTE_FRAME_PAD of the view left free on every side.
+        val b = DetailModel.bounds(route.all)
         val k = cos(Math.toRadians((b[0] + b[2]) / 2))
         val w = (b[3] - b[1]) * k
         val h = b[2] - b[0]
-        val scale = minOf(size.width / w, size.height / h)
+        val inner = 1 - 2 * ROUTE_FRAME_PAD
+        val scale = minOf(size.width * inner / w, size.height * inner / h)
         val ox = (size.width - w * scale) / 2
         val oy = (size.height - h * scale) / 2
         fun pt(l: LatLon) = Offset((ox + (l.lon - b[1]) * k * scale).toFloat(), (oy + (b[2] - l.lat) * scale).toFloat())

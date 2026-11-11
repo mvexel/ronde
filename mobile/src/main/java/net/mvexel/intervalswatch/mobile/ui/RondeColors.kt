@@ -56,14 +56,14 @@ object RondePalette {
     val PlateInk2 = Color(0xFF4D3800)
 
     // Map style (design.md `m_land`, `m_minor`, `m_park`, `m_water`); the MapLibre JSON styles in assets/map match.
-    val MapLandLight = Color(0xFFEEEBE4)
+    val MapLandLight = Color(0xFFE9E5DB)
     val MapMinorLight = Color(0xFFFFFFFF)
-    val MapParkLight = Color(0xFFDDE4D5)
-    val MapWaterLight = Color(0xFFC8D6DF)
-    val MapLandDark = Color(0xFF141518)
-    val MapMinorDark = Color(0xFF1F2125)
-    val MapParkDark = Color(0xFF121A15)
-    val MapWaterDark = Color(0xFF0B1820)
+    val MapParkLight = Color(0xFFCFDEC2)
+    val MapWaterLight = Color(0xFFAFC8D8)
+    val MapLandDark = Color(0xFF16171B)
+    val MapMinorDark = Color(0xFF383C43)
+    val MapParkDark = Color(0xFF1C3324)
+    val MapWaterDark = Color(0xFF12304A)
 
     // HR zone ramps (summary only, always with Z1-Z5 labels).
     val HrZonesDark = listOf(Color(0xFF009F68), Color(0xFF00BB7B), Color(0xFF00D98F), Color(0xFF00F7A4), Color(0xFFB4FFD6))
@@ -103,11 +103,11 @@ object RondePalette {
  * | [badge]        | Ronde chip       | `#15161A`              | `#000000`                  | "Ronde" chip ground |
  * | [onBadge]      | chip text        | `#FFC53D`              | `#FFC53D`                  | "Ronde" chip text (11.5:1 / 13.3:1) |
  * | [badgeEdge]    | chip edge        | none                   | `#2B2D31`                  | Chip edge in dark mode |
- * | [mapLand]      | m_land           | `#EEEBE4`              | `#141518`                  | Map ground, and the route card before tiles load |
- * | [mapMinor]     | m_minor          | `#FFFFFF`              | `#1F2125`                  | Minor roads (also the offline route sketch's grid) |
- * | [mapPark]      | m_park           | `#DDE4D5`              | `#121A15`                  | Parks |
- * | [mapWater]     | m_water          | `#C8D6DF`              | `#0B1820`                  | Water |
- * | [casing]       | casing           | `#15161A`              | `#000000`                  | Route casing, mandatory on the light map (15.2:1) |
+ * | [mapLand]      | m_land           | `#E9E5DB`              | `#16171B`                  | Map ground, and the route card before tiles load |
+ * | [mapMinor]     | m_minor          | `#FFFFFF`              | `#383C43`                  | Minor roads, 1.6:1 on dark land (also the route sketch grid) |
+ * | [mapPark]      | m_park           | `#CFDEC2`              | `#1C3324`                  | Parks |
+ * | [mapWater]     | m_water          | `#AFC8D8`              | `#12304A`                  | Water |
+ * | [casing]       | casing           | `#15161A`              | `#000000`                  | Route casing, mandatory on the light map (14.4:1) |
  * | [routeNeutral] | (no step)        | `#4A4E57` (ink2)       | `#FFFFFF`                  | Route stretches outside any step |
  * | [navBar]       | NavigationBar    | `#EFECE5`              | `#16171A`                  | Bottom bar ground |
  * | [plate]        | plate (C)        | `#FFC53D`              | `#FFC53D`                  | Amber band: onboarding/login only |

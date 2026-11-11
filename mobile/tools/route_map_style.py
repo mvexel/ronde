@@ -2,18 +2,28 @@
 
 Usage: curl -A Ronde -o positron.json https://tiles.openfreemap.org/styles/positron
        python3 route_map_style.py positron.json ../src/main/assets/map
-Colours are the design.md B m_* tokens."""
+Colours are the design.md B m_* tokens (land/minor/park/water also in ui/RondeColors.kt).
+Contrast targets (WCAG relative luminance), dark: minor road/land >= 1.6, major road/land >= 2.2, route fill/land >= 3;
+light keeps Positron's paper look and relies on the mandatory near-black route casing.
+The thumbnail frames a run at about z14-15, so street names start at z14 (Positron: z15) and labels are ink2-strength."""
 import json
 import sys
 
 src, outdir = sys.argv[1], sys.argv[2]
 
 PALETTES = {
-    "light": dict(land="#EEEBE4", minor="#FFFFFF", major="#FFFFFF", casing="#E2DED5", park="#DDE4D5",
-                  water="#C8D6DF", bld="#E5E1D8", rail="#DAD6CD", label="#6B6F78", halo="#EEEBE4", boundary="#B9B5AC"),
-    "dark": dict(land="#141518", minor="#1F2125", major="#2D3035", casing="#18191C", park="#121A15",
-                 water="#0B1820", bld="#191A1E", rail="#24262A", label="#8E939B", halo="#141518", boundary="#3A3D42"),
+    "light": dict(land="#E9E5DB", minor="#FFFFFF", major="#FFFFFF", casing="#CFC9BD", park="#CFDEC2",
+                  water="#AFC8D8", bld="#DDD8CC", rail="#C9C4B8", label="#4A4E57", halo="#F4F2EC", boundary="#ABA79E"),
+    "dark": dict(land="#16171B", minor="#383C43", major="#50555E", casing="#101114", park="#1C3324",
+                 water="#12304A", bld="#1F2125", rail="#3A3D42", label="#C4C8CF", halo="#16171B", boundary="#4A4E57"),
 }
+
+# Positron's minzoom for these labels, lowered so a run-sized map shows its street names.
+LABEL_MINZOOM = {"highway-name-minor": 14, "highway-name-path": 15}
+
+ATTRIBUTION = ('<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> '
+               '<a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a> '
+               '<a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>')
 
 DROP = {"highway-shield-non-us", "highway-shield-us-interstate", "road_shield_us", "airport",
         "landcover_ice_shelf", "landcover_glacier", "label_country_1", "label_country_2", "label_country_3", "label_state"}
@@ -50,7 +60,7 @@ def paint_for(layer, p):
     elif t == "symbol":
         paint["text-color"] = p["label"]
         paint["text-halo-color"] = p["halo"]
-        paint["text-halo-width"] = 1
+        paint["text-halo-width"] = 1.5
         paint.pop("text-halo-blur", None)
     return paint
 
@@ -60,13 +70,15 @@ for name, p in PALETTES.items():
     style = dict(base)
     style["name"] = f"Ronde route {name} (from OpenFreeMap Positron)"
     style["sources"] = {"openmaptiles": dict(base["sources"]["openmaptiles"],
-                                             attribution="© OpenMapTiles © OpenStreetMap contributors")}
+                                             attribution=ATTRIBUTION)}
     layers = []
     for layer in base["layers"]:
         if layer["id"] in DROP or layer.get("source") == "ne2_shaded":
             continue
         layer = dict(layer)
         layer["paint"] = paint_for(layer, p)
+        if layer["id"] in LABEL_MINZOOM:
+            layer["minzoom"] = LABEL_MINZOOM[layer["id"]]
         layers.append(layer)
     style["layers"] = layers
     with open(f"{outdir}/ronde_route_{name}.json", "w") as f:
