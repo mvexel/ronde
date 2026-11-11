@@ -44,6 +44,8 @@ class ActivityDetailScreenshotTest {
     @Test fun detailIntervalsDark() = page(run, dark = true, zones = zones)
     @Test fun detailIntervalsDarkSteps() = page(run, dark = true, item = 3, zones = zones)
     @Test fun detailIntervalsDarkCharts() = page(run, dark = true, item = 5, zones = zones)
+    @Test fun detailIntervalsDarkMap() = page(run, dark = true, item = 8, zones = zones)
+    @Test fun detailIntervalsLightMap() = page(run, item = 8, zones = zones)
 
     @Test fun detailUnstructured() = page(DetailFixtures.unstructuredRun())
     @Test fun detailUnstructuredMap() = page(DetailFixtures.unstructuredRun(), item = 5)
