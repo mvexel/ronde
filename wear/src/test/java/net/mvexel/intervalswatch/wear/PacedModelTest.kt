@@ -3,6 +3,7 @@ package net.mvexel.intervalswatch.wear
 import net.mvexel.intervalswatch.shared.Metric
 import net.mvexel.intervalswatch.shared.PaceUnit
 import net.mvexel.intervalswatch.shared.Samples
+import net.mvexel.intervalswatch.shared.Sport
 import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.StepProgress
 import net.mvexel.intervalswatch.shared.Target
@@ -89,5 +90,30 @@ class PacedModelTest {
         assertFalse(isPacedStep(s(run.steps[2]))) // lap-ended step: old page with the Lap button
         assertFalse(isPacedStep(s(WorkoutStep("HR", StepKind.ACTIVE, durationSec = 60, targets = listOf(Target(Metric.HEART_RATE, 150.0, 160.0)), primary = Metric.HEART_RATE))))
         assertFalse(isPacedStep(s(Samples.ride.steps[1], Samples.ride)))
+    }
+
+    @Test fun judgeAndPageAgreeOnWhichStepsAreJudgedAndWhichAreShort() {
+        val lapPace = WorkoutStep("Easy", StepKind.ACTIVE, targets = listOf(Target(Metric.PACE, 3.0, 3.4)), primary = Metric.PACE)
+        assertFalse("a lap-ended pace step is not judged (the service uses the same predicate)", isPacedStep(Sport.RUN, lapPace))
+        // 150 m at 4:40-5:00 (centre 290 s/km) is an estimated 43.5 s: SHORT for the page and no judgement for the judge
+        val dist = WorkoutStep("Rep", StepKind.ACTIVE, distanceM = 150.0, targets = listOf(Target(Metric.PACE, 1000.0 / 300, 1000.0 / 280)), primary = Metric.PACE)
+        val range = stepRange(dist, 0.0)
+        assertEquals(43.5, judgeStepLenSec(dist, range)!!, 0.01)
+        assertTrue(isShortStep(dist, range))
+        val sess = Session(Samples.run.copy(steps = listOf(dist)), 0, dist, null, StepProgress(10.0, null, 20.0, 130.0, 0.13), 0.0, 0.0, null, null, null, null, null, true, false, false, false)
+        assertEquals(PacedMode.SHORT, pacedMode(sess))
+        // 400 m at the same pace is 116 s: PACED, judge window 20 s
+        val long = dist.copy(distanceM = 400.0)
+        assertFalse(isShortStep(long, stepRange(long, 0.0)))
+        assertEquals(20, JudgeEngine.judgeWindow(judgeStepLenSec(long, stepRange(long, 0.0))!!))
+    }
+
+    @Test fun aTargetWithNoUsableEdgeIsNotPacedAndTheRulerDoesNotCrash() {
+        val none = WorkoutStep("X", StepKind.ACTIVE, durationSec = 300, targets = listOf(Target(Metric.PACE, 0.0, 60.0)), primary = Metric.PACE)
+        assertNull(stepRange(none, 0.0))
+        assertFalse(isPacedStep(Sport.RUN, none))
+        assertEquals(PaceRange(null, null), PaceRange.fromSpeeds(0.0, 60.0))
+        val g = RulerMath.geometry(Grid.snapRange(PaceRange(null, null)))
+        assertEquals(96.0, (g.bandLeft + g.bandRight) / 2, 1e-9)
     }
 }

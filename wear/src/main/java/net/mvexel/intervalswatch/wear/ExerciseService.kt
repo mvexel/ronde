@@ -131,6 +131,9 @@ class ExerciseService : LifecycleService() {
         private const val STALE_SENSOR_SEC = 15.0
         private const val IN_RANGE_HYSTERESIS_SEC = 5.0
 
+        /** The judge runs this many seconds behind the wall clock so late Health Services points land in their own second (same as PaceSmoother's hold). */
+        internal const val JUDGE_LAG_SEC = 3L
+
         private val _session = MutableStateFlow<Session?>(null)
         val session: StateFlow<Session?> = _session.asStateFlow()
 
@@ -181,6 +184,7 @@ class ExerciseService : LifecycleService() {
     // time. Keep the latest values with those times so a sample gets the value from its own moment.
     private val hrSeries = TimedValues<Double>()
     private val speedSeries = TimedValues<Double>()
+    private val rawSpeed = SecondSeries()
     private val paceSmoother = PaceSmoother()
     private val distanceSeries = TimedValues<Double>()
     private val powerSeries = TimedValues<Double>()
@@ -273,8 +277,10 @@ class ExerciseService : LifecycleService() {
         listOf(hrSeries, speedSeries, distanceSeries, powerSeries, cadenceSeries, locationSeries).forEach { it.clear() }
         paceSmoother.clear()
         judge = JudgeEngine(); washGate = WashGate(); judgeOut = null; washState = null; curRep = null; lastRep = null
+        rawSpeed.clear(); jCur = null; jNext = null
         lastJudgeSec = Long.MIN_VALUE; judgeStepIdx = -1
         judgeLog?.close()
+        runCatching { pruneJudgeLogs(RecordingStore.logDir(applicationContext)) }
         judgeLog = JudgeLogWriter(RecordingStore.logDir(applicationContext))
         publish()
 
@@ -334,6 +340,7 @@ class ExerciseService : LifecycleService() {
                 // Raw speed is recorded; the display and alerts use the rolling mean (PaceSmoother).
                 speed = p.value
                 speedSeries.add(wallOf(p.timeDurationFromBoot), p.value)
+                rawSpeed.add(wallOf(p.timeDurationFromBoot), p.value)
                 paceSmoother.add(wallOf(p.timeDurationFromBoot), p.value)
                 times += wallOf(p.timeDurationFromBoot)
             }
@@ -440,68 +447,80 @@ class ExerciseService : LifecycleService() {
         publish()
     }
 
-    /** Pace range of the step as the judge wants it; null for steps with no pace target (power, HR, cadence, rides). */
-    private fun judgeRange(e: WorkoutEngine, fraction: Double): PaceRange? {
-        if (e.workout.sport == Sport.RIDE) return null
-        val target = e.current?.primaryTarget?.takeIf { it.metric == Metric.PACE } ?: return null
-        val r = target.rangeAt(fraction)
-        return PaceRange.fromSpeeds(r.start, r.endInclusive)
+    /** What the judge needs to know about one step, on the wall clock. */
+    private class JStep(val idx: Int, val startWall: Double, var range: PaceRange?, var len: Double?, var endWall: Double?)
+
+    private var jCur: JStep? = null
+    private var jNext: JStep? = null
+
+    private fun jStepOf(e: WorkoutEngine, p: StepProgress, wall: Double): JStep {
+        val step = e.current
+        val range = if (isPacedStep(e.workout.sport, step)) step?.let { stepRange(it, p.fraction) } else null
+        val known = listOfNotNull(jCur, jNext).firstOrNull { it.idx == e.index }
+        val start = known?.startWall ?: (wall - p.elapsedSec)
+        return JStep(e.index, start, range, step?.let { judgeStepLenSec(it, range) }, p.remainingSec?.let { wall + it })
     }
 
-    /** Step length for the judge window: the timed length, an estimate for a distance step, null for a lap step. */
-    private fun judgeStepLen(e: WorkoutEngine, range: PaceRange?): Double? {
-        val step = e.current ?: return null
-        step.durationSec?.let { return it.toDouble() }
-        val dist = step.distanceM ?: return null
-        val centre = range?.let { r -> listOfNotNull(r.fastSKm, r.slowSKm).average() } ?: return null
-        return dist / 1000.0 * centre
-    }
-
-    /** One judge step per wall second (a late tick catches up, at most 30 s), then one log line each. */
+    /**
+     * One judge step per wall second, run [JUDGE_LAG_SEC] behind the clock so Health Services points (which carry their own times
+     * and may arrive a little late, in batches when the screen is off) are in [rawSpeed] before their second is judged. A late tick
+     * catches up (at most 30 s); back-filled seconds are judged but never buzz. A step change takes effect at its own second.
+     */
     private fun judgeTick(e: WorkoutEngine, t: Double, d: Double) {
         if (state == null || state == ExerciseState.PREPARING || finishing || e.finished) return
         val wall = wallSec()
-        val sec = Math.floor(wall).toLong()
-        if (lastJudgeSec == Long.MIN_VALUE) lastJudgeSec = sec - 1
-        if (sec <= lastJudgeSec) return
+        val horizon = Math.floor(wall).toLong() - JUDGE_LAG_SEC
+        if (horizon < 0) return
+        if (lastJudgeSec == Long.MIN_VALUE) lastJudgeSec = horizon - 1
+        if (horizon <= lastJudgeSec) return
         val p = e.progress(t, d)
-        if (e.index != judgeStepIdx) { judgeStepIdx = e.index; judgeStepStartWall = wall - p.elapsedSec }
+        val ctx = jStepOf(e, p, wall)
+        val cur = jCur
+        when {
+            cur == null -> jCur = ctx
+            cur.idx == ctx.idx -> { cur.range = ctx.range; cur.len = ctx.len; cur.endWall = ctx.endWall }
+            else -> jNext = ctx
+        }
         val sport = e.workout.sport
-        val range = judgeRange(e, p.fraction)
-        val len = judgeStepLen(e, range)
-        val paused = state?.isPaused == true
-        for (s in maxOf(lastJudgeSec + 1, sec - 30)..sec) {
-            val raw = speedSeries.at(s.toDouble(), 2.5)
+        for (s in maxOf(lastJudgeSec + 1, horizon - 30)..horizon) {
+            jNext?.let { if (s >= Math.floor(it.startWall).toLong()) { jCur = it; jNext = null } }
+            val js = jCur ?: continue
+            val sd = s.toDouble()
+            val raw = rawSpeed.at(s)
             val out = judge.step(
                 JudgeInput(
-                    tSec = s.toDouble(), rawSpeed = raw, gpsFix = e.workout.indoor || gpsReady,
-                    stepIdx = e.index, stepStartSec = judgeStepStartWall, stepLenSec = len,
-                    stepRemainingSec = p.remainingSec?.let { it + (wall - s) }, range = range, paused = paused,
-                    displayWindowSec = settings.forSport(sport).paceWindowSec,
+                    tSec = sd, rawSpeed = raw, gpsFix = e.workout.indoor || gpsReady,
+                    stepIdx = js.idx, stepStartSec = js.startWall, stepLenSec = js.len,
+                    stepRemainingSec = js.endWall?.let { it - sd }, range = js.range, paused = inPause(sd),
+                    displayWindowSec = settings.forSport(sport).pacedWindowSec, allowBuzz = s == horizon,
                 ),
             )
             judgeOut = out
             val amb = ambient
-            val ws = washGate.step(s.toDouble(), out, settings.colourBand == ColourBand.ON && !amb)
+            // The wash is decided whether or not the screen is ambient: it comes back at once on wake (the page paints nothing in ambient).
+            val ws = washGate.step(sd, out, settings.colourBand == ColourBand.ON)
             washState = ws
-            onJudged(e, out, s == sec)
-            judgeLog?.append(
-                JudgeLog.Row(
-                    tMs = recordStartMs + s * 1000L, stepIdx = e.index, stepLenSec = len, rawSpeed = raw, judge = out,
-                    washOn = ws.on && !amb, hr = heartRate?.toInt(), ambient = amb, cueRow = settings.cueRow,
-                    washSetting = settings.colourBand == ColourBand.ON,
-                ),
-            )
+            if (s == horizon) onJudged(e, out)
+            judgeLog?.let { w ->
+                w.append(
+                    JudgeLog.Row(
+                        tMs = recordStartMs + s * 1000L, stepIdx = js.idx, stepLenSec = js.len, rawSpeed = raw, judge = out,
+                        washOn = ws.on && !amb, hr = hrSeries.at(sd, STALE_SENSOR_SEC)?.toInt(), ambient = amb, cueRow = settings.cueRow,
+                        washSetting = settings.colourBand == ColourBand.ON,
+                    ),
+                )
+                if (w.disabled) { Log.w(TAG, "judge log disabled after an I/O error"); judgeLog = null }
+            }
         }
-        lastJudgeSec = sec
+        lastJudgeSec = horizon
     }
 
     /**
      * Judge-driven haptics: only the judged state buzzes (EASE = one long pulse, PUSH = a flutter), never the display value.
-     * Catch-up seconds after a stalled tick are not buzzed (a buzz late by more than a second would mislead).
+     * Only the newest judged second can buzz (back-filled seconds neither buzz nor spend the budget).
      */
-    private fun onJudged(e: WorkoutEngine, out: JudgeOut, live: Boolean) {
-        if (!live || out.buzz == Side.NONE) return
+    private fun onJudged(e: WorkoutEngine, out: JudgeOut) {
+        if (out.buzz == Side.NONE) return
         if (!settings.forSport(e.workout.sport).offTargetBuzz || state != ExerciseState.ACTIVE) return
         Log.i(TAG, "JUDGE BUZZ side=${out.buzz} beyond=${out.beyondSKm} sev=${out.severity} state=${out.state}")
         judgeBuzzPattern(out.buzz)?.let { vibrate(it) }
@@ -663,7 +682,7 @@ class ExerciseService : LifecycleService() {
 
     /** Range alert for steps the judge does not cover (power, HR, cadence, rides): the older 10 s / 30 s rule on the smoothed value. */
     private fun rangeAlert(e: WorkoutEngine, t: Double, d: Double) {
-        if (judgeRange(e, 0.0) != null) return // pace steps: the judge buzzes (onJudged)
+        if (isPacedStep(e.workout.sport, e.current)) return // pace steps: the judge buzzes (onJudged)
         if (!settings.forSport(e.workout.sport).offTargetBuzz) return
         val step = e.current ?: return
         val target = step.primaryTarget ?: return
@@ -698,8 +717,9 @@ class ExerciseService : LifecycleService() {
         val e = engine ?: return
         val t = activeSec()
         val d = distance()
-        stepRange(e.current ?: WorkoutStep("", StepKind.REST), e.progress(t, d).fraction)?.let { r ->
-            if (e.workout.sport != Sport.RIDE) curRep = RepResult(e.index, r, stepAvgSpeed(d - e.stepStartM, e.progress(t, d).elapsedSec))
+        e.current?.takeIf { isPacedStep(e.workout.sport, it) }?.let { st ->
+            val pr = e.progress(t, d)
+            stepRange(st, pr.fraction)?.let { r -> curRep = RepResult(e.index, r, stepAvgSpeed(d - e.stepStartM, pr.elapsedSec)) }
         }
         curRep?.let { if (it.fromStep < e.index) { lastRep = it; curRep = null } }
         _session.value = Session(
@@ -820,6 +840,7 @@ class ExerciseService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        ambient = false
         judgeLog?.close()
         ticker?.cancel()
         releaseWakeLock()

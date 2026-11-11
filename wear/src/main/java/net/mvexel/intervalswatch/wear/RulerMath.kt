@@ -49,6 +49,8 @@ internal object RulerMath {
             return RulerGeometry(vc, CENTRE, scale, CENTRE - bw / 2, CENTRE + bw / 2, twoSided = true)
         }
         val scale = LANE_WIDTH / (2.5 * W_ONE_SIDED)
+        // No edge at all: nothing to measure against (the pages never draw this); a centred empty band instead of a crash.
+        if (f == null && s == null) return RulerGeometry(0.0, CENTRE, scale, CENTRE - BAND_MIN / 2, CENTRE + BAND_MIN / 2, twoSided = true)
         return if (f != null) {
             // Cap ("slower than"): bracket right of centre, allowed side (slower) to the left.
             val x = CENTRE + ONE_SIDED_OFFSET

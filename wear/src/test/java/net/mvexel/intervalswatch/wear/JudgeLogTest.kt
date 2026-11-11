@@ -54,4 +54,22 @@ class JudgeLogTest {
         assertEquals(1 + 7, f.readLines().size)
         assertEquals(1, f.readLines().count { it.startsWith("t_ms") })
     }
+
+    @Test fun writerNeverThrowsAndDisablesItselfOnAnIoError() {
+        val parent = Files.createTempDirectory("judge").toFile()
+        val notADir = File(parent, "file").apply { writeText("x") } // a file where the directory should be
+        val w = JudgeLogWriter(notADir)
+        w.append(row()) // must not throw
+        assertTrue(w.disabled)
+        w.append(row()); w.close() // still fine afterwards
+    }
+
+    @Test fun pruneKeepsTheNewestFiles() {
+        val dir = Files.createTempDirectory("judge").toFile()
+        for (d in 1..9) File(dir, "judge-2026-11-0$d.csv").writeText("h")
+        File(dir, "run.fit").writeText("fit"); File(dir, "notes.csv").writeText("x")
+        assertEquals(6, pruneJudgeLogs(dir, keep = 3))
+        assertEquals(listOf("judge-2026-11-07.csv", "judge-2026-11-08.csv", "judge-2026-11-09.csv"), dir.list()!!.filter { it.startsWith("judge-") }.sorted())
+        assertTrue(File(dir, "run.fit").exists() && File(dir, "notes.csv").exists())
+    }
 }

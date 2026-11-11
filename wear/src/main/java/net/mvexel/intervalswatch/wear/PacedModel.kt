@@ -17,11 +17,26 @@ internal enum class PacedMode { PACED, SHORT, REST }
 /** REST result is shown for about this long (seconds into the rest step). */
 internal const val REST_RESULT_SEC = 20.0
 
-/** Steps the paced layout draws: a pace target on a run/walk/other step that does not end on a lap press. */
-internal fun isPacedStep(s: Session): Boolean {
-    val step = s.step ?: return false
-    return s.workout.sport != Sport.RIDE && !step.endsOnLap && step.primaryTarget?.metric == Metric.PACE
+/**
+ * The one predicate for "this step is judged and drawn as paced": a pace target with at least one edge on a run, walk or
+ * other step that does not end on a lap press. The service's judge and the page both use it, so they cannot disagree.
+ */
+internal fun isPacedStep(sport: Sport, step: WorkoutStep?): Boolean =
+    step != null && sport != Sport.RIDE && !step.endsOnLap && stepRange(step, 0.0) != null
+
+internal fun isPacedStep(s: Session): Boolean = isPacedStep(s.workout.sport, s.step)
+
+/** Step length the judge window and SHORT mode are chosen by: the timed length, or a distance step's length at the range centre pace. */
+internal fun judgeStepLenSec(step: WorkoutStep, range: PaceRange?): Double? {
+    step.durationSec?.let { return it.toDouble() }
+    val dist = step.distanceM ?: return null
+    val centre = range?.let { r -> listOfNotNull(r.fastSKm, r.slowSKm).average() }?.takeIf { !it.isNaN() } ?: return null
+    return dist / 1000.0 * centre
 }
+
+/** Under 60 s: SHORT mode (no judgement, no buzz). Shared by the judge input and the page. */
+internal fun isShortStep(step: WorkoutStep, range: PaceRange?): Boolean =
+    judgeStepLenSec(step, range)?.let { it < JudgeEngine.MIN_JUDGED_LEN } ?: false
 
 /** The rest result screen: a rest step right after a rep with a pace band, for its first [REST_RESULT_SEC] seconds. */
 internal fun isRestResult(s: Session): Boolean {
@@ -33,13 +48,15 @@ internal fun isRestResult(s: Session): Boolean {
 /** Whether the Step page draws the paced layout (a paced step, or the rest result after one). */
 internal fun usesPacedPage(s: Session): Boolean = isPacedStep(s) || isRestResult(s)
 
+/** The pace band of [step] at [fraction]; null when it has none, or when neither edge is a real edge (nothing to draw or judge). */
 internal fun stepRange(step: WorkoutStep, fraction: Double): PaceRange? =
-    step.primaryTarget?.takeIf { it.metric == Metric.PACE }?.rangeAt(fraction)?.let { PaceRange.fromSpeeds(it.start, it.endInclusive) }
+    step.primaryTarget?.takeIf { it.metric == Metric.PACE }?.rangeAt(fraction)
+        ?.let { PaceRange.fromSpeeds(it.start, it.endInclusive) }?.takeIf { it.fastSKm != null || it.slowSKm != null }
 
 internal fun pacedMode(s: Session): PacedMode {
     val step = s.step ?: return PacedMode.PACED
     if (isRestResult(s)) return PacedMode.REST
-    if (step.durationSec != null && step.durationSec!! < 60) return PacedMode.SHORT
+    if (isShortStep(step, stepRange(step, s.progress.fraction))) return PacedMode.SHORT
     return PacedMode.PACED
 }
 
