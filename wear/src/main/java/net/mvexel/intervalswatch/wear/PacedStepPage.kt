@@ -23,6 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.State
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -179,7 +181,8 @@ private fun PacedDisc(s: Session, settings: ScreenSettings, large: Boolean) {
     val unit = s.workout.paceUnit
     val rows = if (large) LARGE_ROWS else NORMAL_ROWS
     val mode = pacedMode(s)
-    val j = s.judge
+    // The judge runs a few seconds behind the clock: an output that belongs to another step is stale and is ignored.
+    val j = s.judge?.takeIf { it.stepIdx == s.stepIndex }
     val rep = if (mode == PacedMode.REST) s.lastRep else null
     val range = rep?.range ?: stepRange(step, s.progress.fraction) ?: PaceRange(null, null)
     val snapped = (if (rep == null) j?.range else null) ?: Grid.snapRange(range)
@@ -206,12 +209,13 @@ private fun PacedDisc(s: Session, settings: ScreenSettings, large: Boolean) {
     val severity = if (restV != null) maxOf(1, JudgeEngine.tierOf(restV.second)) else j?.severity ?: 1
 
     val hidePace = (mode == PacedMode.SHORT && (j?.stepAgeSec ?: 0.0) < 15.0) || state == JudgeState.GPS_WAIT
-    val drawnSKm: Double? = when {
-        pausedLook -> null
+    // The grid value (never the continuous mean). Paused keeps the last grid value in the hero; only the marker goes.
+    val heroSKm: Double? = when {
         rep != null -> repSKm?.let { Grid.snap(it, snapped.gridSKm) }
         hidePace -> null
         else -> j?.drawnSKm
     }
+    val drawnSKm: Double? = if (pausedLook) null else heroSKm
     val hollow = state == JudgeState.SETTLING || state == JudgeState.WEAK
     val showMarker = !pausedLook && state != JudgeState.GPS_WAIT
     val markerTarget = (drawnSKm?.let { geo.xOf(it) } ?: RulerMath.CENTRE).toFloat()
@@ -222,7 +226,7 @@ private fun PacedDisc(s: Session, settings: ScreenSettings, large: Boolean) {
     val numberCue = settings.cueRow == CueRow.NUMBER
 
     // Wash
-    val ws = if (pausedLook || mode == PacedMode.REST) WashState(false) else s.wash ?: WashState(false)
+    val ws = if (!band || pausedLook || mode == PacedMode.REST || j == null) WashState(false) else s.wash ?: WashState(false)
     val ctx = LocalContext.current
     val animator = remember { WashAnimator(if (inspect) 0f else systemAnimationScale(ctx)) }
     var frame by remember { mutableStateOf(WashFrame(0f, 0xFF000000L)) }
@@ -236,7 +240,9 @@ private fun PacedDisc(s: Session, settings: ScreenSettings, large: Boolean) {
         while (t - t0 <= 700) { frame = animator.sample(t); t = androidx.compose.runtime.withFrameMillis { it } }
         frame = animator.sample(t)
     }
-    val washFrame = if (inspect) WashAnimator().also { it.snap(ws) }.sample(0) else frame
+    val staticWash = if (inspect) WashAnimator().also { it.snap(ws) }.sample(0) else null
+    // Read inside the draw lambda only, so the 60 fps wash loop redraws and does not recompose the page.
+    val washFrame: () -> WashFrame = { staticWash ?: frame }
 
     // Cue row and range text swap sequentially: out 150 then in 150 (recovery), range 75 then cue 75 (onset).
     val showCue = verdictSide != Side.NONE
@@ -261,33 +267,36 @@ private fun PacedDisc(s: Session, settings: ScreenSettings, large: Boolean) {
         Modifier.size(192.dp).clip(androidx.compose.foundation.shape.CircleShape)
             .semantics(mergeDescendants = true) { contentDescription = speech }
             .drawBehind {
-                if (washFrame.alpha > 0f) drawRect(
-                    Color(washFrame.argb).copy(alpha = washFrame.alpha), Offset(0f, 138.dp.toPx()), Size(size.width, size.height - 138.dp.toPx()),
+                val wf = washFrame()
+                if (wf.alpha > 0f) drawRect(
+                    Color(wf.argb).copy(alpha = wf.alpha), Offset(0f, 138.dp.toPx()), Size(size.width, size.height - 138.dp.toPx()),
                 )
             },
     ) {
         val content = if (pausedLook) 0.5f else 1f
         Box(Modifier.fillMaxSize().alpha(content)) {
             Ring(s, step.kind, pausedLook)
+            val markerState = markerX.asState()
             Ruler(
-                geo = geo, snapped = snapped, laneY = rows.laneY, markerX = markerX.value, showMarker = showMarker, hollow = hollow,
-                weak = state == JudgeState.WEAK, stretch = stretchOf(state, mode, verdictSide, severity, geo, markerX.value, restV != null, j),
+                geo = geo, laneY = rows.laneY, markerX = markerState, showMarker = showMarker, hollow = hollow,
+                weak = state == JudgeState.WEAK,
+                stretch = { mx -> stretchOf(state, verdictSide, severity, geo, mx, restV != null) },
             )
 
             // Row 1
-            if (rows.flanks) Row1(s, mode, state, drawnSKm, repSKm, unit)
+            if (rows.flanks) Row1(s, mode, state, heroSKm, repSKm, unit)
             else T(timeLeftText(s), ts(28f, 700), Rb.ink2, Modifier.atBaseline(96f, rows.timeLeftY))
             if (large) { /* LARGE: no labels, flanks or HR */ }
 
             // Hero
-            Hero(s, mode, state, drawnSKm, rows.heroY, unit, large)
+            Hero(s, mode, state, heroSKm, rows.heroY, unit, large)
 
             // Row 4
             val row4 = rows.row4Y
-            Box(Modifier.fillMaxSize().alpha(rangeA.value)) { Row4Base(s, mode, range, unit, verdictSide == Side.NONE && restV != null, row4) }
-            Box(Modifier.fillMaxSize().alpha(cueA.value)) {
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = rangeA.value }) { Row4Base(s, mode, range, unit, verdictSide == Side.NONE && restV != null, row4) }
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = cueA.value }) {
                 val (side, beyond) = lastVerdict
-                if (side != Side.NONE) Cue(side, beyond, unit, numberCue, band, large, row4)
+                if (side != Side.NONE) Cue(side, beyond, unit, numberCue, ws.on, large, row4)
             }
 
             // HR
@@ -311,7 +320,7 @@ private data class Stretch(val x0: Float, val x1: Float, val color: Color, val h
 
 /** The stretch from the nearer band edge to the marker: grey when near (and on short steps), hue while OUT, none otherwise. */
 private fun stretchOf(
-    state: JudgeState, mode: PacedMode, verdict: Side, severity: Int, geo: RulerGeometry, mx: Float, rest: Boolean, j: JudgeOut?,
+    state: JudgeState, verdict: Side, severity: Int, geo: RulerGeometry, mx: Float, rest: Boolean,
 ): Stretch? {
     val left = geo.bandLeft.toFloat()
     val right = geo.bandRight.toFloat()
@@ -348,9 +357,11 @@ private fun Ring(s: Session, kind: StepKind, paused: Boolean) {
 
 @Composable
 private fun Ruler(
-    geo: RulerGeometry, snapped: SnappedRange, laneY: Float, markerX: Float, showMarker: Boolean, hollow: Boolean, weak: Boolean, stretch: Stretch?,
+    geo: RulerGeometry, laneY: Float, markerX: State<Float>, showMarker: Boolean, hollow: Boolean, weak: Boolean, stretch: (Float) -> Stretch?,
 ) {
     Canvas(Modifier.fillMaxSize()) {
+        // The marker glide is read here, in the draw phase: it redraws the ruler, it does not recompose the page.
+        val mxDp = markerX.value
         fun d(v: Float) = v.dp.toPx()
         val cy = d(laneY)
         // lane
@@ -372,12 +383,12 @@ private fun Ruler(
             if (geo.openToRight) bracket(l, cy, feetRight = true) else bracket(r, cy, feetRight = false)
         }
         // stretch
-        stretch?.let { st ->
+        stretch(mxDp)?.let { st ->
             drawRoundRect(st.color, Offset(d(st.x0), cy - d(st.heightDp) / 2), Size(d(st.x1 - st.x0), d(st.heightDp)), CornerRadius(d(2f)))
         }
         // marker: 12 x 32, black halo 3 dp under it
         if (showMarker) {
-            val mx = d(markerX)
+            val mx = d(mxDp)
             val tl = Offset(mx - d(6f), cy - d(16f))
             val sz = Size(d(12f), d(32f))
             val cr = CornerRadius(d(6f))
@@ -417,7 +428,7 @@ private fun Row1(s: Session, mode: PacedMode, state: JudgeState, drawnSKm: Doubl
             Cell(96f + 37f, "next target", next?.let { paceText(it, unit) } ?: "--", Rb.ink)
         }
         state == JudgeState.SETTLING && mode == PacedMode.PACED -> T("settling", PT.settling, Rb.ink3, Modifier.atBaseline(96f + 37f, 62f))
-        else -> Cell(96f + 37f, "avg", s.stepAvgSpeed?.let { Format.pace(it, unit) } ?: "--", Rb.ink)
+        else -> Cell(96f + 37f, "avg", if (state == JudgeState.GPS_WAIT) "--" else s.stepAvgSpeed?.let { Format.pace(it, unit) } ?: "--", Rb.ink)
     }
 }
 
@@ -434,7 +445,7 @@ private fun Hero(s: Session, mode: PacedMode, state: JudgeState, drawnSKm: Doubl
         return
     }
     val timeHero = mode == PacedMode.SHORT || mode == PacedMode.REST
-    val text = if (timeHero) timeLeftText(s) else drawnSKm?.let { paceText(it, unit) } ?: s.judge?.displaySKm?.let { paceText(it, unit) } ?: "--:--"
+    val text = if (timeHero) timeLeftText(s) else drawnSKm?.let { paceText(it, unit) } ?: "--:--"
     val dim = !timeHero && (state == JudgeState.SETTLING || state == JudgeState.WEAK || drawnSKm == null)
     BaselineRow(listOf(3.dp), centreFirst = true, modifier = Modifier.atBaseline(96f, y)) {
         T(text, if (large) ts(56f, 700, -0.02f) else PT.hero, if (dim) Rb.ink3 else Rb.ink)

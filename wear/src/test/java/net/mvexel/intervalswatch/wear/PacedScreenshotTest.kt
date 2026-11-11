@@ -84,6 +84,8 @@ abstract class PacedScreenshotBase(device: DeviceConfig) {
     @Test fun fastFarNumberWash() = page(session(w, 0, 372.0, judged(JudgeState.OUT, 265.0, side = Side.FAST, sev = 3, beyond = 15.0), WashState(true, Side.FAST, 3)), wash = true)
     @Test fun slowFarWordsWash() = page(session(w, 0, 372.0, judged(JudgeState.OUT, 335.0, side = Side.SLOW, sev = 3, beyond = 35.0), WashState(true, Side.SLOW, 3)), CueRow.WORDS, true)
     @Test fun settling() = page(session(w, 0, 585.0, judged(JudgeState.SETTLING, 475.0, age = 8.0), avg = null, elapsed = 8.0))
+    // judge output that belongs to the previous step (index 0) on step 1: ignored, the page shows settling with no stale marker or cue
+    @Test fun staleJudgeFromThePreviousStepIsIgnored() = page(session(workout(tempo, tempo), 1, 590.0, judged(JudgeState.OUT, 265.0, side = Side.FAST, sev = 3, beyond = 15.0), WashState(true, Side.FAST, 3), elapsed = 3.0), wash = true)
     @Test fun weakGps() = page(session(w, 0, 372.0, judged(JudgeState.WEAK, 290.0)))
     @Test fun gpsWaiting() = page(session(w, 0, 442.0, null, gps = false, avg = null))
     @Test fun paused() = page(session(w, 0, 372.0, inRange, paused = true, avg = null))
