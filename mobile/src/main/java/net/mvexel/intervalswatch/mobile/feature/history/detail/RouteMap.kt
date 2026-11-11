@@ -8,6 +8,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.alpha
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -45,8 +49,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -90,12 +92,8 @@ import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import kotlin.math.cos
 
-/**
- * The credit line under the thumbnail (the full-screen map has MapLibre's attribution button, fed by the style's
- * source attribution). OSM's credit comes first and is never cut: the line wraps instead. OpenFreeMap asks for its own credit.
- */
-internal const val MAP_ATTRIBUTION = "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap"
-internal const val MAP_ATTRIBUTION_URL = "https://www.openstreetmap.org/copyright"
+/** Size of the corner left free on the thumbnail so MapLibre's collapsed (i) attribution button stays tappable. */
+private val ATTRIBUTION_CORNER = 40.dp
 
 /** Space left around the route on each side, as a fraction of the map's width/height, so the streets around it show. */
 internal const val ROUTE_FRAME_PAD = 0.18f
@@ -121,10 +119,17 @@ internal fun RouteMapCard(route: RouteDrawing, caption: String?) {
                     .clip(RoundedCornerShape(12.dp)).background(p.mapLand),
             ) {
                 RouteMapView(route, interactive = false, Modifier.fillMaxSize())
-                // Swallow touches on the thumbnail so the page scrolls and a tap expands.
-                Box(Modifier.fillMaxSize().clickable(onClickLabel = "Expand map") { expanded = true })
+                // Swallow touches on the thumbnail so the page scrolls and a tap expands, except in the bottom-end
+                // corner, where MapLibre's collapsed (i) attribution button sits and must stay tappable.
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f).fillMaxWidth().clickable(onClickLabel = "Expand map") { expanded = true })
+                    Row(Modifier.height(ATTRIBUTION_CORNER).fillMaxWidth()) {
+                        Box(Modifier.weight(1f).fillMaxHeight().clickable(onClickLabel = "Expand map") { expanded = true })
+                        Spacer(Modifier.width(ATTRIBUTION_CORNER))
+                    }
+                }
             }
-            Attribution()
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 val kinds = route.segments.mapNotNull { it.kind }.toSet()
                 if (StepKind.ACTIVE in kinds) RouteKey(p.work, "work")
@@ -146,20 +151,6 @@ internal fun RouteMapCard(route: RouteDrawing, caption: String?) {
     }
 }
 
-/** One small ink3 line under the map (never over it); wraps rather than ellipsizes. Opens OSM's copyright page. */
-@Composable
-private fun Attribution() {
-    val uri = LocalUriHandler.current
-    Text(
-        MAP_ATTRIBUTION,
-        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Normal),
-        color = RondeTheme.colors.ink3,
-        modifier = Modifier.fillMaxWidth()
-            .clickable(role = Role.Button, onClickLabel = "Open OpenStreetMap copyright") { uri.openUri(MAP_ATTRIBUTION_URL) }
-            .padding(vertical = 6.dp),
-    )
-}
-
 @Composable
 private fun RouteKey(color: Color, text: String) = Row(verticalAlignment = Alignment.CenterVertically) {
     Box(Modifier.size(width = 14.dp, height = 4.dp).background(color, RoundedCornerShape(2.dp)))
@@ -177,7 +168,11 @@ private fun RouteMapView(route: RouteDrawing, interactive: Boolean, modifier: Mo
     }
     val p = RondeTheme.colors
     val context = LocalContext.current
-    val mapView = remember(interactive) { RondeMaps.mapView(context, interactive) }
+    val mapView = remember(interactive) { RondeMaps.mapView(context, interactive, p.mapLand) }
+    // Hidden until the style is loaded, the route framed and the first full frame drawn, then faded in over the
+    // land colour behind it: no loading colour, default camera or camera jump shows (the "flicker").
+    var ready by remember(mapView) { mutableStateOf(false) }
+    val alpha by animateFloatAsState(if (ready) 1f else 0f, tween(200), label = "map-reveal")
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, mapView) {
         var state = Lifecycle.State.CREATED
@@ -197,8 +192,8 @@ private fun RouteMapView(route: RouteDrawing, interactive: Boolean, modifier: Mo
         }
     }
     AndroidView(
-        factory = { mapView.also { v -> v.getMapAsync { map -> RondeMaps.show(v, map, route, p) } } },
-        modifier = modifier.semantics { contentDescription = desc },
+        factory = { mapView.also { v -> v.getMapAsync { map -> RondeMaps.show(v, map, route, p) { ready = true } } } },
+        modifier = modifier.alpha(alpha).semantics { contentDescription = desc },
     )
 }
 
@@ -206,7 +201,7 @@ private fun RouteMapView(route: RouteDrawing, interactive: Boolean, modifier: Mo
 private object RondeMaps {
     private var ready = false
 
-    fun mapView(context: Context, interactive: Boolean): MapView {
+    fun mapView(context: Context, interactive: Boolean, land: Color): MapView {
         if (!ready) {
             MapLibre.getInstance(context.applicationContext)
             // OpenFreeMap asks clients for a unique User-Agent.
@@ -219,18 +214,20 @@ private object RondeMaps {
         }
         val options = MapLibreMapOptions.createFromAttributes(context)
             .textureMode(true) // draws inside a scrolling Compose list without SurfaceView z-order issues
-            // MapLibre's logo is optional under its BSD licence. The thumbnail credits the data in a line under the
-            // map; the full-screen map keeps the standard compact (i) button, which lists the style's source credits.
+            .foregroundLoadColor(land.toArgb()) // not MapLibre's default grey while the style loads
+            // MapLibre's logo is optional under its BSD licence. Both maps credit the data with MapLibre's collapsed
+            // (i) button, which lists the style's source credits (OpenFreeMap, OpenMapTiles, OpenStreetMap).
             .logoEnabled(false)
-            .attributionEnabled(interactive)
+            .attributionEnabled(true)
             .attributionGravity(Gravity.BOTTOM or Gravity.END)
+            .attributionMargins(IntArray(4) { (8 * context.resources.displayMetrics.density).toInt() })
             .compassEnabled(false)
         return MapView(context, options).apply { onCreate(null) }.also { v ->
             v.getMapAsync { m -> m.uiSettings.setAllGesturesEnabled(interactive); m.uiSettings.isRotateGesturesEnabled = false }
         }
     }
 
-    fun show(view: MapView, map: MapLibreMap, route: RouteDrawing, p: RondeColors) {
+    fun show(view: MapView, map: MapLibreMap, route: RouteDrawing, p: RondeColors, onReady: () -> Unit) {
         val asset = if (p.isDark) "asset://map/ronde_route_dark.json" else "asset://map/ronde_route_light.json"
         map.setStyle(Style.Builder().fromUri(asset)) { style ->
             val lines = route.segments.map { seg ->
@@ -294,6 +291,12 @@ private object RondeMaps {
                 val py = (v.height * ROUTE_FRAME_PAD).toInt()
                 map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, px, py, px, py))
                 if (map.cameraPosition.zoom > ROUTE_MAX_FRAME_ZOOM) map.moveCamera(CameraUpdateFactory.zoomTo(ROUTE_MAX_FRAME_ZOOM))
+                // Reveal once the framed view has fully rendered (tiles in), or after 1.5 s so a slow network
+                // never leaves an empty card.
+                var done = false
+                fun reveal() { if (!done) { done = true; onReady() } }
+                view.addOnDidFinishRenderingMapListener { partial -> if (!partial) reveal() }
+                view.postDelayed({ reveal() }, 1500)
             }
         }
     }
