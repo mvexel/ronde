@@ -55,7 +55,7 @@ class FitReaderTest {
         val streams = ActivityStreams.from(back)
         assertEquals(4, streams.size)
         assertEquals(listOf(TimeSpan(3.0, 8.0)), streams.pauses)
-        assertEquals(listOf(TimeSpan(0.0, 2.0), TimeSpan(2.0, 11.0)), ActivityStreams.stepBoundaries(back))
+        assertEquals(listOf(TimeSpan(0.0, 2.0, kind = StepKind.WARMUP), TimeSpan(2.0, 11.0, kind = StepKind.ACTIVE)), ActivityStreams.stepBoundaries(back))
     }
 
     @Test fun indoorRideKeepsCadenceAsIs() {

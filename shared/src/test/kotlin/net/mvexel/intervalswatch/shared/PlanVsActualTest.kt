@@ -366,4 +366,178 @@ class PlanVsActualTest {
         assertEquals(Verdict.FAST, a.steps[1].verdict)
         assertEquals(3, a.summary.stepsCompleted)
     }
+
+    // ---- review fixes ----
+
+    /**
+     * Drives [WorkoutEngine] and [RecordingBuilder] at 1 Hz like the watch's ExerciseService does. [closeAtPlanEnd]
+     * false is the older watch, which left the last lap open until the recording ended.
+     */
+    private fun watchRun(steps: List<WorkoutStep>, secs: Int, speed: (Int) -> Double, closeAtPlanEnd: Boolean = true): Recording {
+        val e = WorkoutEngine(Workout(1, "w", Sport.RUN, startLocal = "", steps = steps)).also { it.start() }
+        val b = RecordingBuilder("w", Sport.RUN, false, T0, 1)
+        var d = 0.0
+        b.add(RecSample(0.0, 0.0))
+        for (t in 0 until secs) {
+            e.update(t.toDouble(), d)
+            val cur = e.current
+            if (cur != null) b.onStep(e.index, cur, t.toDouble(), d) else if (closeAtPlanEnd) b.finishPlan(t.toDouble(), d)
+            val v = speed(t)
+            d += v
+            b.add(RecSample((t + 1).toDouble(), d, speed = v, hr = 150))
+        }
+        return b.build(secs.toDouble(), d)
+    }
+
+    private val T0 = 1_700_000_000_000L
+
+    private fun roundTrip(rec: Recording) = FitReader.read(FitWriter.encode(rec))
+
+    private val short3 = listOf(
+        WorkoutStep("Warm up", StepKind.WARMUP, durationSec = 60),
+        WorkoutStep("Work", StepKind.ACTIVE, durationSec = 120, targets = listOf(work), primary = Metric.PACE),
+        WorkoutStep("Cool down", StepKind.COOLDOWN, durationSec = 60),
+    )
+
+    @Test
+    fun postPlanTimeOnAWatchRecordingIsExtra() {
+        for (closeAtPlanEnd in listOf(true, false)) {
+            val rec = roundTrip(watchRun(short3, 300, { 3.0 }, closeAtPlanEnd))
+            val a = PlanVsActual.analyze(short3, Sport.RUN, ActivityStreams.from(rec), ActivityStreams.stepBoundaries(rec))
+            val msg = "closeAtPlanEnd=$closeAtPlanEnd"
+            assertEquals(msg, Alignment.BOUNDARIES, a.summary.alignment)
+            assertEquals(msg, 3, a.summary.stepsCompleted)
+            assertEquals(msg, 60.0, a.steps[2].actual!!.movingSec, 1.0)
+            assertEquals(msg, 60.0, a.summary.extra!!.movingSec, 1.0)
+            assertEquals(msg, 240.0, a.summary.extra!!.startSec, 1.0)
+        }
+        // The new watch closes the last lap where the plan ended.
+        assertEquals(240.0, watchRun(short3, 300, { 3.0 }).laps.last().endSec, 0.0)
+    }
+
+    @Test
+    fun lapsCarryTheirStepIndexThroughFit() {
+        val b = RecordingBuilder("w", Sport.RUN, false, T0)
+        var d = 0.0
+        b.add(RecSample(0.0, 0.0))
+        for (t in 0..120) {
+            // Step 1 lasted less than a tick: the engine went from 0 to 2 at t = 60.
+            val idx = if (t < 60) 0 else 2
+            b.onStep(idx, short3[idx], t.toDouble(), d)
+            val v = if (idx == 0) 2.9 else 2.5
+            if (t < 120) { d += v; b.add(RecSample(t + 1.0, d, speed = v)) }
+        }
+        val rec = b.build(120.0, d)
+        assertEquals(listOf(0, 2), rec.laps.map { it.stepIndex })
+        val back = roundTrip(rec)
+        assertEquals(listOf(0, 2), back.laps.map { it.stepIndex })
+
+        val bounds = ActivityStreams.stepBoundaries(back)
+        assertEquals(listOf(0, 1, 2), bounds.map { it.stepIndex })
+        assertEquals(bounds[1].startSec, bounds[1].endSec, 0.0)      // the skipped step is an empty span
+
+        // Indexed, and positional after losing the index (as a store that keeps only start,end would).
+        for (b2 in listOf(bounds, bounds.map { TimeSpan(it.startSec, it.endSec) })) {
+            val a = PlanVsActual.analyze(short3, Sport.RUN, ActivityStreams.from(back), b2)
+            assertEquals(Alignment.BOUNDARIES, a.summary.alignment)
+            assertEquals(StepStatus.NOT_REACHED, a.steps[1].status)
+            assertEquals(60.0, a.steps[2].actual!!.movingSec, 0.0)
+            assertEquals(2.5, a.steps[2].actual!!.avgSpeedMps!!, 1e-9)
+            assertEquals(StepStatus.COMPLETE, a.steps[2].status)
+        }
+    }
+
+    @Test
+    fun olderFileWithoutStepIndexReadsAndFallsBackOnKindMismatch() {
+        // An older recording (no step index) that lost step 1's lap: lap kinds no longer line up with the steps.
+        val rec = Recording(
+            "w", Sport.RUN, false, T0,
+            samples = (0..120).map { RecSample(it.toDouble(), it * 2.5) },
+            laps = listOf(RecLap(0.0, 60.0, 0.0, 150.0, StepKind.WARMUP), RecLap(60.0, 120.0, 150.0, 300.0, StepKind.COOLDOWN)),
+            pauses = emptyList(), elapsedSec = 120.0, totalM = 300.0,
+        )
+        val back = roundTrip(rec)
+        assertEquals(listOf(null, null), back.laps.map { it.stepIndex })
+        val a = PlanVsActual.analyze(short3, Sport.RUN, ActivityStreams.from(back), ActivityStreams.stepBoundaries(back))
+        assertEquals(Alignment.PLANNED, a.summary.alignment)
+    }
+
+    @Test
+    fun indexedBoundariesWithWrongKindOrOrderAreIgnored() {
+        val s = Synth().go(240, 3.0).build()
+        val wrongKind = listOf(TimeSpan(0.0, 60.0, 0, StepKind.WARMUP), TimeSpan(60.0, 180.0, 1, StepKind.REST))
+        assertEquals(Alignment.PLANNED, PlanVsActual.analyze(short3, Sport.RUN, s, wrongKind).summary.alignment)
+        val outOfRange = listOf(TimeSpan(0.0, 60.0, 0), TimeSpan(60.0, 180.0, 5))
+        assertEquals(Alignment.PLANNED, PlanVsActual.analyze(short3, Sport.RUN, s, outOfRange).summary.alignment)
+        val backwards = listOf(TimeSpan(0.0, 60.0, 1), TimeSpan(60.0, 180.0, 0))
+        assertEquals(Alignment.PLANNED, PlanVsActual.analyze(short3, Sport.RUN, s, backwards).summary.alignment)
+        // Lap presses cut steps short on the watch: an indexed list is trusted on lengths.
+        val lapped = listOf(TimeSpan(0.0, 20.0, 0), TimeSpan(20.0, 40.0, 1), TimeSpan(40.0, 240.0, 2))
+        val a = PlanVsActual.analyze(short3, Sport.RUN, s, lapped)
+        assertEquals(Alignment.BOUNDARIES, a.summary.alignment)
+        assertEquals(StepStatus.PARTIAL, a.steps[1].status)
+    }
+
+    @Test
+    fun emptyBoundariesMeanPlannedAlignment() {
+        val a = PlanVsActual.analyze(intervals, Sport.RUN, intervalRun().build(), boundaries = emptyList())
+        assertEquals(Alignment.PLANNED, a.summary.alignment)
+        assertEquals(12, a.summary.stepsCompleted)
+    }
+
+    @Test
+    fun intervalsThatDoNotMatchThePlanAreIgnored() {
+        val s = intervalRun().build()
+        // intervals.icu merged the warm-up with rep 1: everything after is one step off.
+        val merged = spans(listOf(780, 120, 180, 120, 180, 120, 180, 120, 180, 120, 600))
+        assertFalse(PlanVsActual.boundariesMatchPlan(intervals, s, merged))
+        val a = PlanVsActual.analyze(intervals, Sport.RUN, s, merged)
+        assertEquals(Alignment.PLANNED, a.summary.alignment)
+        assertEquals(12, a.summary.stepsCompleted)
+        assertEquals(listOf(Verdict.IN, Verdict.FAST, Verdict.IN, Verdict.SLOW, Verdict.IN), workSteps(a).map { it.verdict })
+
+        // Far more intervals than steps (e.g. auto laps every minute).
+        val perMinute = spans(List(45) { 60 })
+        assertEquals(Alignment.PLANNED, PlanVsActual.analyze(intervals, Sport.RUN, s, perMinute).summary.alignment)
+
+        // One interval over the whole run is not the warm-up.
+        val whole = listOf(TimeSpan(0.0, 2700.0))
+        assertEquals(Alignment.PLANNED, PlanVsActual.analyze(intervals, Sport.RUN, s, whole).summary.alignment)
+
+        // Laps that match the plan are kept.
+        assertTrue(PlanVsActual.boundariesMatchPlan(intervals, s, spans(intervals.map { it.durationSec!! })))
+    }
+
+    @Test
+    fun partialRampIsJudgedAgainstThePartDone() {
+        val ramp = Target(Metric.POWER, 100.0, 200.0, rampFrom = 100.0, rampTo = 200.0)
+        val step = listOf(WorkoutStep("Ramp", StepKind.WARMUP, durationSec = 600, targets = listOf(ramp), primary = Metric.POWER))
+        // Stopped halfway, having followed the ramp exactly: 100 → 150 W.
+        val half = PlanVsActual.analyze(step, Sport.RIDE, Synth().go(300, 8.0) { i -> 100.0 + 100.0 * (i - 0.5) / 600 }.build(power = true)).steps[0]
+        assertEquals(StepStatus.PARTIAL, half.status)
+        assertEquals(100.0, half.timeInRange!!.pctIn, 1e-9)
+        assertEquals(Verdict.IN, half.verdict)
+
+        // A distance ramp moves with distance, not time: 500 m slow, then 500 m fast.
+        val dStep = listOf(WorkoutStep("Ramp", StepKind.WARMUP, distanceM = 1000.0, targets = listOf(ramp), primary = Metric.POWER))
+        val s = Synth().go(100, 5.0) { i -> 100.0 + 100.0 * (i - 0.5) * 5.0 / 1000 }
+            .go(50, 10.0) { i -> 100.0 + 100.0 * (500 + (i - 0.5) * 10.0) / 1000 }
+        val byDist = PlanVsActual.analyze(dStep, Sport.RIDE, s.build(power = true)).steps[0]
+        assertEquals(100.0, byDist.timeInRange!!.pctIn, 1e-9)
+    }
+
+    @Test
+    fun paceFromDistanceUsesMovingTime() {
+        // 10 s samples, distance only; 5 s of the middle interval is paused (no distance gained then).
+        val s = ActivityStreams(
+            timeSec = doubleArrayOf(0.0, 10.0, 20.0, 30.0),
+            distanceM = doubleArrayOf(0.0, 40.0, 60.0, 100.0),
+            pauses = listOf(TimeSpan(12.0, 17.0)),
+        )
+        val step = listOf(WorkoutStep("Steady", StepKind.ACTIVE, durationSec = 25,
+            targets = listOf(Target(Metric.PACE, 3.9, 4.1)), primary = Metric.PACE))
+        val a = PlanVsActual.analyze(step, Sport.RUN, s).steps[0]
+        assertEquals(25.0, a.actual!!.movingSec, 0.0)
+        assertEquals(100.0, a.timeInRange!!.pctIn, 1e-9)
+    }
 }

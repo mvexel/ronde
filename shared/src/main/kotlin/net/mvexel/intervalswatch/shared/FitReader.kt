@@ -55,7 +55,8 @@ object FitReader {
             val end = l[7]?.let { start + it / 1000.0 } ?: ((l[253] ?: startFit) - startFit).toDouble()
             val dist = (l[9] ?: 0L) / 100.0
             val kind = when (l[23]) { 1L -> StepKind.REST; 2L -> StepKind.WARMUP; 3L -> StepKind.COOLDOWN; 0L -> StepKind.ACTIVE; else -> null }
-            RecLap(start, end, lapStartM, lapStartM + dist, kind).also { lapStartM += dist }
+            // wkt_step_index (71); files from before it was written have none.
+            RecLap(start, end, lapStartM, lapStartM + dist, kind, l[71]?.toInt()).also { lapStartM += dist }
         }
 
         // Timer events: stop_all (4) opens a pause, start (0) closes it. A trailing stop_all is the end, not a pause.

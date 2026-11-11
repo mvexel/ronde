@@ -1,7 +1,11 @@
 package net.mvexel.intervalswatch.shared
 
-/** A span of wall-clock seconds since the activity started. */
-data class TimeSpan(val startSec: Double, val endSec: Double)
+/**
+ * A span of wall-clock seconds since the activity started. As a step boundary it may say which plan step it is
+ * ([stepIndex], 0-based) and what kind of step the recorder saw ([kind]); both are null when unknown (pauses,
+ * intervals.icu intervals, boundaries stored without them).
+ */
+data class TimeSpan(val startSec: Double, val endSec: Double, val stepIndex: Int? = null, val kind: StepKind? = null)
 
 /**
  * An activity's streams as parallel arrays, one entry per sample. [timeSec] is wall-clock seconds since start
@@ -46,8 +50,22 @@ class ActivityStreams(
             )
         }
 
-        /** The watch writes one lap per step, in step order. */
-        fun stepBoundaries(rec: Recording): List<TimeSpan> = rec.laps.map { TimeSpan(it.startSec, it.endSec) }
+        /**
+         * The watch's laps as step boundaries. The watch writes one lap per step, in step order, and (since laps
+         * carry it) the step index: then entry k is step k, and a step with no lap of its own (skipped within one
+         * tick, or a dropped zero-length lap) is an empty span where the next lap starts, so the list still lines
+         * up with the steps when only start and end are kept. Laps without a step index are passed in file order.
+         */
+        fun stepBoundaries(rec: Recording): List<TimeSpan> {
+            if (rec.laps.any { it.stepIndex == null }) return rec.laps.map { TimeSpan(it.startSec, it.endSec, kind = it.kind) }
+            val out = ArrayList<TimeSpan>()
+            for (l in rec.laps) {
+                val k = l.stepIndex!!
+                while (out.size < k) out += TimeSpan(l.startSec, l.startSec, out.size)
+                out += TimeSpan(l.startSec, l.endSec, k, l.kind)
+            }
+            return out
+        }
     }
 }
 
@@ -142,9 +160,12 @@ data class PlanAnalysis(val sport: Sport, val steps: List<StepAnalysis>, val sum
  * Plan vs actual for a completed structured workout.
  *
  * Alignment:
- * - With [analyze]'s `boundaries` (laps/intervals, one per step, in step order), boundary k is step k. Steps
- *   beyond the last boundary are NOT_REACHED. When every step has a boundary, boundaries beyond the last step and
- *   any time after the last step's boundary are the "extra" stretch.
+ * - With [analyze]'s `boundaries` (laps/intervals, one per step, in step order) that pass [boundariesMatchPlan],
+ *   boundary k is step k, or the step its [TimeSpan.stepIndex] names when every boundary has one. Steps without a
+ *   boundary are NOT_REACHED. When the last step has a boundary, it is cut at its planned duration or distance
+ *   (when it has one) and everything after that is the "extra" stretch: older watch recordings left the last lap
+ *   open to the end, and laps from other devices may run on.
+ * - Boundaries that fail [boundariesMatchPlan] (or an empty list) are ignored: alignment is then as without.
  * - Without, steps are laid out from the start like [WorkoutEngine] runs them: a duration step lasts its planned
  *   moving time (pauses do not count), a distance step its planned distance. A distance step with no distance or
  *   velocity stream is treated like a lap-press step.
@@ -158,15 +179,24 @@ data class PlanAnalysis(val sport: Sport, val steps: List<StepAnalysis>, val sum
  * A step is COMPLETE when it got at least [COMPLETE_FRACTION] of its planned time or distance (any time at all for
  * a lap-press step), PARTIAL when it got less, NOT_REACHED when it got none.
  *
- * Verdict: the step's average of its target metric against the target range (for a ramp, the range halfway
- * through) widened by [Tolerance] on each side. A one-sided target (low <= 0, or high infinite) has no bound on
- * that side. Time in range uses the exact range, moving with the step for ramps.
+ * Verdict: the step's average of its target metric against the target range widened by [Tolerance] on each side.
+ * A one-sided target (low <= 0, or high infinite) has no bound on that side. Time in range uses the exact range.
+ *
+ * Ramps follow [WorkoutEngine.progress]: the position in the step is moving time over the planned duration, or
+ * distance over the planned distance, clamped to 0..1 (0 throughout a lap-press step). Time in range uses the
+ * range at each sample's position; the verdict uses the range halfway through the part done (a ramp stopped at
+ * half way is judged at a quarter).
  */
 object PlanVsActual {
     const val COMPLETE_FRACTION = 0.97
     /** A longer gap between samples counts as paused. */
     const val MAX_SAMPLE_GAP_SEC = 30.0
     const val EXTRA_MIN_SEC = 5.0
+    /** Boundary plausibility, see [boundariesMatchPlan]. */
+    const val MATCH_TOL_FRACTION = 0.10
+    const val MATCH_TOL_SEC = 10.0
+    const val MATCH_TOL_M = 50.0
+    const val MATCH_MIN_SHARE = 0.75
     private const val EPS = 1e-6
 
     fun analyze(
@@ -177,19 +207,18 @@ object PlanVsActual {
         tolerance: Tolerance = Tolerance(),
     ): PlanAnalysis {
         val tl = Timeline(streams)
-        val segs = arrayOfNulls<Seg>(steps.size)
+        var segs = arrayOfNulls<Seg>(steps.size)
         var extra: Seg? = null
-        val alignment = if (boundaries != null) Alignment.BOUNDARIES else Alignment.PLANNED
+        val mapped = mapBoundaries(tl, steps, boundaries)
+        val alignment = if (mapped != null) Alignment.BOUNDARIES else Alignment.PLANNED
         if (tl.n >= 2) {
-            if (boundaries != null) {
-                for (k in steps.indices) {
-                    val b = boundaries.getOrNull(k) ?: break
-                    segs[k] = Seg(tl.indexAt(b.startSec), tl.indexAt(b.endSec).coerceAtLeast(tl.indexAt(b.startSec)))
-                }
-                if (boundaries.size >= steps.size) {
-                    val extraStart = boundaries.getOrNull(steps.size)?.let { tl.indexAt(it.startSec) }
-                        ?: segs.lastOrNull()?.b
-                    extra = extraStart?.let { Seg(it, tl.n - 1) }
+            if (mapped != null) {
+                segs = mapped
+                val k = steps.lastIndex
+                segs[k]?.let { last ->
+                    val cut = clip(tl, steps[k], last)
+                    segs[k] = cut
+                    extra = Seg(cut.b, tl.n - 1)
                 }
             } else {
                 alignPlanned(tl, steps, segs)
@@ -220,6 +249,24 @@ object PlanVsActual {
         return PlanAnalysis(sport, results, summary)
     }
 
+    /**
+     * Whether [boundaries] can stand for the plan's steps (else [analyze] lays the steps out itself):
+     * - not null or empty, each span ending at or after its start, starts in time order, and any [TimeSpan.kind]
+     *   given equal to its step's kind;
+     * - with a [TimeSpan.stepIndex] on every span (the watch's own laps): indexes strictly increasing and within the
+     *   plan. Lengths are not checked: a lap press may end any step early.
+     * - without (intervals.icu intervals, or stored laps that lost the index): at most one more span than steps
+     *   (time after the plan), and the spans must look like the steps. Pair span k with step k; for each step with a
+     *   planned duration (or distance, with a distance stream), except the plan's last step and empty spans (a step
+     *   skipped within one tick), the span's moving time (distance) must be within [MATCH_TOL_FRACTION] of the plan
+     *   or [MATCH_TOL_SEC] ([MATCH_TOL_M]), whichever is more. The last span may be shorter (the activity ended in
+     *   that step). At least [MATCH_MIN_SHARE] of the checked spans must match. This lets a few lap-pressed steps
+     *   through but rejects intervals.icu splits that are not the plan's laps: merged or detected intervals shift
+     *   every later step, and one span over everything is far longer than a first step.
+     */
+    fun boundariesMatchPlan(steps: List<WorkoutStep>, streams: ActivityStreams, boundaries: List<TimeSpan>?): Boolean =
+        mapBoundaries(Timeline(streams), steps, boundaries) != null
+
     /** "4:10–4:20 /km", "98 → 154 W" for a ramp, "≤ 140 bpm" / "≥ 250 W" one-sided; pace one-sided in words. */
     fun targetText(t: Target, unit: PaceUnit, sport: Sport? = null): String {
         val u = Format.unitLabel(t.metric, unit, sport)
@@ -245,6 +292,64 @@ object PlanVsActual {
 
     /** Samples a+1..b, i.e. wall time t[a]..t[b]. Empty when a == b. */
     private data class Seg(val a: Int, val b: Int)
+
+    /** Boundaries per step, or null when they fail [boundariesMatchPlan]. */
+    private fun mapBoundaries(tl: Timeline, steps: List<WorkoutStep>, boundaries: List<TimeSpan>?): Array<Seg?>? {
+        if (boundaries.isNullOrEmpty() || steps.isEmpty()) return null
+        if (boundaries.any { it.endSec < it.startSec - EPS }) return null
+        if (boundaries.zipWithNext().any { (a, b) -> b.startSec < a.startSec - EPS }) return null
+        val byStep = arrayOfNulls<TimeSpan>(steps.size)
+        val indexed = boundaries.all { it.stepIndex != null }
+        if (indexed) {
+            var prev = -1
+            for (b in boundaries) {
+                val k = b.stepIndex!!
+                if (k <= prev || k >= steps.size) return null
+                byStep[k] = b
+                prev = k
+            }
+        } else {
+            if (boundaries.size > steps.size + 1) return null
+            for (k in 0 until minOf(steps.size, boundaries.size)) byStep[k] = boundaries[k]
+        }
+        if (steps.indices.any { k -> byStep[k]?.kind?.let { it != steps[k].kind } == true }) return null
+        if (tl.n < 2) return arrayOfNulls(steps.size)
+        val segs = Array(steps.size) { k ->
+            byStep[k]?.let { b -> tl.indexAt(b.startSec).let { a -> Seg(a, tl.indexAt(b.endSec).coerceAtLeast(a)) } }
+        }
+        if (!indexed && !lengthsMatch(tl, steps, segs)) return null
+        return segs
+    }
+
+    private fun lengthsMatch(tl: Timeline, steps: List<WorkoutStep>, segs: Array<Seg?>): Boolean {
+        val lastPaired = segs.indexOfLast { it != null }
+        var checked = 0
+        var ok = 0
+        for (k in 0..lastPaired) {
+            val seg = segs[k] ?: continue
+            if (k == steps.lastIndex || seg.a == seg.b) continue
+            val s = steps[k]
+            val (got, planned, abs) = when {
+                s.durationSec != null -> Triple(tl.moving(seg), s.durationSec.toDouble(), MATCH_TOL_SEC)
+                s.distanceM != null && tl.d != null -> Triple(tl.d[seg.b] - tl.d[seg.a], s.distanceM, MATCH_TOL_M)
+                else -> continue
+            }
+            val tol = maxOf(abs, planned * MATCH_TOL_FRACTION)
+            checked++
+            if (got <= planned + tol && (k == lastPaired || got >= planned - tol)) ok++
+        }
+        return checked == 0 || ok >= checked * MATCH_MIN_SHARE - EPS
+    }
+
+    /** [seg] cut where the step's planned duration or distance is reached; as is without one or when not reached. */
+    private fun clip(tl: Timeline, s: WorkoutStep, seg: Seg): Seg {
+        val j = when {
+            s.durationSec != null -> (seg.a + 1..seg.b).firstOrNull { tl.m[it] - tl.m[seg.a] >= s.durationSec - EPS }
+            s.distanceM != null && tl.d != null -> (seg.a + 1..seg.b).firstOrNull { tl.d[it] - tl.d[seg.a] >= s.distanceM - EPS }
+            else -> null
+        }
+        return if (j != null) Seg(seg.a, j) else seg
+    }
 
     private fun lapLike(tl: Timeline, s: WorkoutStep) = s.endsOnLap || (s.durationSec == null && tl.d == null)
 
@@ -345,11 +450,13 @@ object PlanVsActual {
             Metric.POWER -> act.avgPower
             Metric.CADENCE -> act.avgCadence
         }
-        return StepAnalysis(i, step, status, act, target, avg, timeInRange(tl, seg, target), avg?.let { verdict(target, it, tol) })
+        // Halfway through the part done, by the engine's measure (0 for a lap-press step).
+        val mid = if (lapLike(tl, step)) 0.0 else minOf(1.0, f) / 2
+        return StepAnalysis(i, step, status, act, target, avg, timeInRange(tl, seg, step, target), avg?.let { verdict(target, it, mid, tol) })
     }
 
-    private fun verdict(t: Target, avg: Double, tol: Tolerance): Verdict {
-        val r = t.rangeAt(0.5)
+    private fun verdict(t: Target, avg: Double, at: Double, tol: Tolerance): Verdict {
+        val r = t.rangeAt(at)
         val lo = r.start
         val hi = r.endInclusive
         val pace = t.metric == Metric.PACE
@@ -360,15 +467,19 @@ object PlanVsActual {
         }
     }
 
-    private fun timeInRange(tl: Timeline, seg: Seg, t: Target): TimeInRange? {
-        val total = tl.moving(seg)
-        if (total <= 0) return null
+    private fun timeInRange(tl: Timeline, seg: Seg, step: WorkoutStep, t: Target): TimeInRange? {
+        if (tl.moving(seg) <= 0) return null
         var inS = 0.0; var below = 0.0; var above = 0.0
         for (i in seg.a + 1..seg.b) {
             val w = tl.w[i]
             if (w <= 0) continue
             val v = tl.value(t.metric, i) ?: continue
-            val f = (tl.m[i] - w / 2 - tl.m[seg.a]) / total
+            // Position in the step like WorkoutEngine.progress (rangeAt clamps it to 0..1).
+            val f = when {
+                lapLike(tl, step) -> 0.0
+                step.durationSec != null -> (tl.m[i] - w / 2 - tl.m[seg.a]) / step.durationSec
+                else -> ((tl.d!![i - 1] + tl.d[i]) / 2 - tl.d[seg.a]) / step.distanceM!!
+            }
             when (t.compare(v, f)) {
                 -1 -> below += w
                 1 -> above += w
@@ -453,7 +564,7 @@ object PlanVsActual {
 
         fun value(metric: Metric, i: Int): Double? = when (metric) {
             Metric.PACE -> s.velocityMps?.get(i)?.takeUnless { it.isNaN() }
-                ?: if (s.velocityMps == null && d != null && t[i] > t[i - 1]) (d[i] - d[i - 1]) / (t[i] - t[i - 1]) else null
+                ?: if (s.velocityMps == null && d != null && w[i] > 0) (d[i] - d[i - 1]) / w[i] else null
             Metric.HEART_RATE -> s.heartrate?.get(i)
             Metric.POWER -> s.watts?.get(i)
             Metric.CADENCE -> s.cadence?.get(i)
