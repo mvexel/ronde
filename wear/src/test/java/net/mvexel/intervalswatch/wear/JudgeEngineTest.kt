@@ -298,16 +298,22 @@ class JudgeEngineTest {
         val d = Drive(len = 600.0)
         d.hold(40, 290.0); d.hold(120, 255.0)
         assertEquals(3, d.outs.last().severity)
-        // back to ~7 s past the edge: tier 1, but the step down waits 5 s
-        d.hold(40, 273.0)
-        val tail = d.outs.takeLast(40)
-        val sev = tail.map { it.severity }
-        val firstLower = sev.indexOfFirst { it in 1..2 }
-        assertTrue(sev.zipWithNext().none { (a, b) -> b > a && a != 0 || false } || true)
-        assertTrue("severity went down at index $firstLower", firstLower >= 0)
-        // no drop shorter than 5 s: every run of equal severity (except the very first) is at least 5 long while still OUT
-        val runs = sev.takeWhile { it != 0 }.fold(ArrayList<Pair<Int, Int>>()) { acc, s -> if (acc.isNotEmpty() && acc.last().first == s) acc[acc.lastIndex] = s to acc.last().second + 1 else acc += s to 1; acc }
-        runs.dropLast(1).drop(1).forEach { assertTrue("run $it", it.second >= 5) }
+        // back to ~7 s past the edge: tier 1, but the step down waits for 5 s below the current severity
+        d.hold(60, 273.0)
+        val outs = d.outs.filter { true }
+        var drops = 0
+        for (i in 1 until outs.size) {
+            val a = outs[i - 1]; val b = outs[i]
+            if (a.state != JudgeState.OUT || b.state != JudgeState.OUT) continue
+            // severity rises at once, never falls without 5 consecutive seconds of a lower tier (this second and the 4 before)
+            if (b.severity < a.severity) {
+                drops++
+                for (k in i - 4..i) assertTrue("drop at $i from ${a.severity} to ${b.severity}, second $k tier ${JudgeEngine.tierOf(outs[k].beyondSKm)}",
+                    JudgeEngine.tierOf(outs[k].beyondSKm) < a.severity)
+            }
+            if (b.severity > a.severity) assertEquals("rises follow the tier at once", maxOf(1, JudgeEngine.tierOf(b.beyondSKm)), b.severity)
+        }
+        assertTrue("expected the severity to step down at least once, got $drops", drops >= 1)
     }
 
     @Test fun marginDoublesWithNoise() {
@@ -349,6 +355,33 @@ class JudgeEngineTest {
         val weak = d.outs.filter { it.state == JudgeState.WEAK }
         assertTrue(weak.size > 5)
         assertEquals(1, weak.map { it.shownSKm }.distinct().size)
+    }
+
+    @Test fun aWalkingRestFollowedByWorkDoesNotTripWeakAtTheBoundary() {
+        // 60 s of walking (1.2 m/s, noise 0.15 m/s) then a work step at 4:50 with quiet GPS. The sigma history must not read across the
+        // boundary: before the fix the 30 s detrend saw a 1.2 -> 3.5 m/s step and WEAK entered a few seconds into the work step.
+        val rng = Random(21)
+        val d = Drive(len = 600.0)
+        repeat(60) { d.tick(1.2 + rng.nextDouble(-0.15, 0.15)) }
+        d.newStep()
+        repeat(90) { d.tick(speed(290.0) + rng.nextDouble(-0.05, 0.05)) }
+        val work = d.outs.drop(60)
+        assertTrue("WEAK in the work step: ${work.indexOfFirst { it.state == JudgeState.WEAK }}", work.none { it.state == JudgeState.WEAK })
+        assertEquals(JudgeState.IN, work.last().state)
+        // sigma only exists once 10 s of the new step are in
+        assertTrue(work.take(9).all { it.sigmaHat == null })
+    }
+
+    @Test fun stepChangeResetsTheMarkerAndOutput() {
+        val d = Drive(len = 600.0)
+        d.hold(60, 262.0)
+        d.newStep()
+        val o = d.tick(speed(320.0))
+        assertEquals(1, o.stepIdx)
+        assertEquals(JudgeState.SETTLING, o.state)
+        // the grid value restarts from the new 6 s mean (5 old seconds at 262 and 1 new at 320, about 271 s/km) instead of
+        // holding the previous step's slot (260)
+        assertEquals(270.0, o.shownSKm!!, 5.0)
     }
 
     private fun assertNotEquals(a: Any, b: Any) = assertTrue("$a == $b", a != b)
@@ -394,13 +427,51 @@ class JudgeEngineTest {
         assertTrue(narrow.outs.none { it.buzz != Side.NONE })
     }
 
-    @Test fun noBuzzWhileFlickeringOutAndInNeedsFiveSecondsInToRearm() {
-        val d = Drive(len = 600.0)
-        d.hold(40, 290.0); d.hold(60, 262.0)
-        d.hold(80, 290.0) // OUT ends
-        val buzzesBefore = d.outs.count { it.buzz != Side.NONE }
-        assertTrue(buzzesBefore >= 1)
-        assertEquals(JudgeState.IN, d.outs.last().state)
+    @Test fun buzzGovernorDisarmsWhenOutEndsAndRearmsAfterFiveSecondsOfIn() {
+        val g = BuzzGovernor()
+        var t = 0.0
+        fun sec(alert: Boolean) { g.tick(t, alert); t += 1 }
+        repeat(12) { sec(true) }
+        assertTrue(g.tryFire(t)) // first buzz
+        t += 40; // 40 s later (OUT still on): well past the 30 s gap
+        g.tick(t, true)
+        // OUT ends, then a flicker: OUT again after only 4 s of IN
+        t += 1; repeat(4) { sec(false) }
+        assertFalse("disarmed", g.isArmed)
+        repeat(12) { sec(true) }
+        assertFalse("4 s of IN is not enough to re-arm: no buzz", g.tryFire(t))
+        // OUT ends again, this time 5 s of IN re-arms
+        repeat(5) { sec(false) }
+        assertTrue(g.isArmed)
+        repeat(12) { sec(true) }
+        assertTrue("armed again after 5 s IN, 30 s since the last fire", g.tryFire(t + 40))
+    }
+
+    @Test fun buzzGovernorCapsAtTwoPerFiveMinutesUntilOutHasEndedForThirtySeconds() {
+        val g = BuzzGovernor()
+        fun at(t: Double, alert: Boolean = true) = g.tick(t, alert)
+        at(0.0); assertTrue(g.tryFire(0.0))
+        at(10.0); assertFalse("under 30 s apart", g.tryFire(10.0))
+        at(30.0); assertTrue(g.tryFire(30.0))
+        at(70.0); assertFalse("third within 5 min", g.tryFire(70.0))
+        at(400.0); assertFalse("locked until OUT has ended 30 s, even after the window", g.tryFire(400.0))
+        for (t in 401..440) at(t.toDouble(), false)
+        for (t in 441..450) at(t.toDouble())
+        assertTrue(g.tryFire(450.0))
+    }
+
+    @Test fun backFilledSecondsDoNotBuzzOrSpendTheBudget() {
+        val e = JudgeEngine()
+        var buzzes = 0
+        val d = Drive(e = e, len = 600.0)
+        d.hold(40, 290.0)
+        // judge the whole OUT episode with buzzing disallowed: no buzz, and the budget is untouched afterwards
+        repeat(80) { t ->
+            val o = e.step(JudgeInput((d.t + t).toDouble(), speed(262.0), true, 0, 0.0, 600.0, 500.0, RANGE, false, 30, allowBuzz = false))
+            if (o.buzz != Side.NONE) buzzes++
+            assertEquals(0, o.buzzCount5Min)
+        }
+        assertEquals(0, buzzes)
     }
 
     // --- steady pace with noise: sim reference (judge-sim-output.txt) ---
@@ -425,7 +496,7 @@ class JudgeEngineTest {
 
     private data class Rates(val out: Double, val weak: Double, val buzzes: Double)
 
-    private fun steady(level: String, stepLen: Double, seeds: Int = 4): Rates {
+    private fun steady(level: String, stepLen: Double, seeds: Int = 24): Rates {
         var out = 0.0; var weak = 0.0; var bz = 0.0
         for (s in 0 until seeds) {
             val d = Drive(len = stepLen)
@@ -440,17 +511,23 @@ class JudgeEngineTest {
     }
 
     @Test fun steadyPaceFalseOutRateMatchesTheSimOrder() {
-        // judge-sim-output.txt, runner held at 4:50 in 4:40-5:00, 20 min x 4 seeds: false OUT low 0.0-0.1 %, mid 1.2-2.6 %,
-        // high: WEAK 98 % of the time. This test uses its own random series (different RNG), so the bounds are loose.
-        val bounds = mapOf(120.0 to 0.06, 240.0 to 0.06, 600.0 to 0.06, 1200.0 to 0.06)
-        for ((len, mid) in bounds) {
+        // Reference: judge-sim.py run over 24 seeds (seed 100+, runner held at 4:50 in 4:40-5:00, 20 min); the shipped
+        // judge-sim-output.txt used 4 seeds (low 0.1 / 0.0 / 0.0 / 0.0 %, mid 2.6 / 1.9 / 1.2 / 1.5 %, mid buzzes 1.0 / 1.0 / 0.25 / 0.5).
+        // 24-seed python numbers: false OUT low / mid, mid false buzzes per 20 min, per step length:
+        //   120 s: 0.10 % / 2.76 % / 1.17;  240 s: 0.03 / 2.01 / 0.79;  600 s: 0.00 / 1.17 / 0.33;  1200 s: 0.00 / 1.08 / 0.33; high: WEAK 98 %.
+        // This test uses the same noise model (assumed, never measured) with a Kotlin RNG, so it is a different random series.
+        // Bounds are 2x the reference (low-noise rows: 2x with a floor of 0.2 %, twice the largest low-noise sim value). A single
+        // 20 min seed ranges from 0 to 1.1 % false OUT at low noise and 0 to 8 % at mid, hence 24 seeds here, not 4.
+        class Ref(val lowOut: Double, val midOut: Double, val midBuzz: Double)
+        val ref = mapOf(120.0 to Ref(0.0010, 0.0276, 1.17), 240.0 to Ref(0.0003, 0.0201, 0.79), 600.0 to Ref(0.0, 0.0117, 0.33), 1200.0 to Ref(0.0, 0.0108, 0.33))
+        for ((len, r) in ref) {
             val low = steady("low", len); val m = steady("mid", len); val high = steady("high", len)
             println("steady len=$len low=$low mid=$m high=$high")
-            assertTrue("low false OUT ${low.out} len=$len", low.out <= 0.005)
-            assertEquals("low false buzzes len=$len", 0.0, low.buzzes, 0.5)
-            assertTrue("mid false OUT ${m.out} len=$len", m.out <= mid)
-            assertTrue("mid false buzzes ${m.buzzes} per 20 min len=$len", m.buzzes <= 3.0)
-            assertTrue("high must be WEAK most of the time: ${high.weak} len=$len", high.weak >= 0.85)
+            assertTrue("low false OUT ${low.out} len=$len", low.out <= maxOf(2 * r.lowOut, 0.002))
+            assertTrue("low false buzzes ${low.buzzes} len=$len", low.buzzes <= 0.1)
+            assertTrue("mid false OUT ${m.out} len=$len (sim ${r.midOut})", m.out <= 2 * r.midOut)
+            assertTrue("mid false buzzes ${m.buzzes} per 20 min len=$len (sim ${r.midBuzz})", m.buzzes <= 2 * r.midBuzz)
+            assertTrue("high must be WEAK most of the time: ${high.weak} len=$len", high.weak >= 0.9)
             assertTrue("high false OUT ${high.out}", high.out <= 0.02)
         }
     }

@@ -82,6 +82,8 @@ data class JudgeInput(
     val paused: Boolean,
     /** Display window setting W_d: 15, 20 or 30 s. */
     val displayWindowSec: Int = 30,
+    /** False for back-filled seconds: the judge still judges but a buzz neither fires nor spends the budget. */
+    val allowBuzz: Boolean = true,
 )
 
 data class JudgeOut(
@@ -111,9 +113,47 @@ data class JudgeOut(
     val buzz: Side,
     val buzzCount5Min: Int,
     val stepAgeSec: Double,
+    /** The step this output belongs to: a page showing another step must ignore it. */
+    val stepIdx: Int = 0,
 ) {
     val out: Boolean get() = state == JudgeState.OUT
     val near: Boolean get() = state == JudgeState.NEAR
+}
+
+/**
+ * When a buzz may fire (v5 section 7): repeats at least 30 s apart, at most 2 per 5 min and then silent until OUT has ended for
+ * 30 s, and armed only after 5 s of IN since OUT last ended (so a flicker never buzzes). Pure, one [tick] per second.
+ */
+internal class BuzzGovernor {
+    private val times = ArrayList<Double>()
+    private var last = -1e9
+    private var armed = true
+    private var locked = false
+    private var inRun = 0
+    private var wasAlert = false
+
+    val countLast5Min: Int get() = times.size
+    val isArmed: Boolean get() = armed
+
+    fun tick(t: Double, alert: Boolean) {
+        if (wasAlert && !alert) armed = false
+        wasAlert = alert
+        if (alert) inRun = 0 else inRun++
+        if (inRun >= JudgeEngine.REARM_S) armed = true
+        if (inRun >= JudgeEngine.BUDGET_RESET_S) locked = false
+        times.removeAll { t - it >= 300.0 }
+    }
+
+    /** The conjunction of the other buzz conditions holds this second: true when the buzz fires (and is counted). */
+    fun tryFire(t: Double): Boolean {
+        if (!armed || t - last < JudgeEngine.BUZZ_GAP_S) return false
+        if (locked || times.size >= JudgeEngine.MAX_BUZZ_5MIN) { locked = true; return false }
+        times += t; last = t
+        return true
+    }
+
+    /** New step or resume: armed again, the budget is kept. */
+    fun disarmReset() { armed = true; inRun = 0; wasAlert = false }
 }
 
 class JudgeEngine {
@@ -146,22 +186,17 @@ class JudgeEngine {
     private var sevBelowRun = 0
 
     // buzz
-    private val buzzTimes = ArrayList<Double>()
-    private var lastBuzz = -1e9
-    private var armed = true
-    private var noCandRun = 0
-    private var budgetLocked = false
-    private var outOffRun = 0
+    private val governor = BuzzGovernor()
 
     private var last: JudgeOut? = null
 
     fun step(i: JudgeInput): JudgeOut {
         val t = i.tSec
-        if (i.stepIdx != stepIdx) { stepIdx = i.stepIdx; anchor = i.stepStartSec; resetEpisode() }
+        if (i.stepIdx != stepIdx) { stepIdx = i.stepIdx; anchor = i.stepStartSec; resetEpisode(); last = null }
         if (i.paused) {
             wasPaused = true
             val base = last
-            return (base ?: blank(i)).copy(state = JudgeState.PAUSED, buzz = Side.NONE, stepAgeSec = t - anchor).also { last = it }
+            return (base ?: blank(i)).copy(state = JudgeState.PAUSED, buzz = Side.NONE, stepAgeSec = t - anchor, stepIdx = i.stepIdx).also { last = it }
         }
         if (wasPaused) { wasPaused = false; anchor = t; resetEpisode() }
 
@@ -178,7 +213,7 @@ class JudgeEngine {
         val dMean = meanSpeed(t, nDisp)
         val dPace = dMean?.let { 1000.0 / max(it, 0.1) }
         // Noise estimate
-        val sg = sigmaRaw(t, max(dMean ?: 3.0, 1.0))
+        val sg = sigmaRaw(t)
         if (sg != null) { sigmaHist.addLast(sg); while (sigmaHist.size > 15) sigmaHist.removeFirst() }
         val sigma = if (sigmaHist.isEmpty()) null else median(sigmaHist)
         if (sigma != null) {
@@ -222,22 +257,19 @@ class JudgeEngine {
 
         // Dwell and OUT
         if (candidate != Side.NONE) {
-            candRun++; offRun = 0; noCandRun = 0
+            candRun++; offRun = 0
             if (!alert && candRun >= DWELL_S) { alert = true; alertSince = t; severity = 0; sevBelowRun = 0 }
             if (alert) alertSide = candidate
         } else {
-            candRun = 0; noCandRun++
+            candRun = 0
             if (alert) {
                 offRun++
                 if (offRun >= OUT_END_S) {
                     alert = false; alertSide = Side.NONE; severity = 0; sevBelowRun = 0
-                    armed = false
                 }
             }
         }
-        if (noCandRun >= REARM_S) armed = true
-        if (alert) outOffRun = 0 else outOffRun++
-        if (outOffRun >= BUDGET_RESET_S) budgetLocked = false
+        governor.tick(t, alert)
 
         // Beyond / near / severity
         var beyond = 0.0
@@ -269,16 +301,12 @@ class JudgeEngine {
 
         // Buzz
         var buzz = Side.NONE
-        buzzTimes.removeAll { t - it >= 300.0 }
-        if (state == JudgeState.OUT && candidate != Side.NONE && armed && !weak && age >= SETTLING_S &&
+        if (i.allowBuzz && state == JudgeState.OUT && candidate != Side.NONE && !weak && age >= SETTLING_S &&
             (len == null || len >= MIN_JUDGED_LEN) && t - alertSince >= BUZZ_AFTER_S &&
             (i.stepRemainingSec == null || i.stepRemainingSec > 5.0) &&
             (range?.widthMps.let { it == null || it >= MIN_BUZZ_WIDTH_MPS }) &&
-            t - lastBuzz >= BUZZ_GAP_S
-        ) {
-            if (budgetLocked || buzzTimes.size >= MAX_BUZZ_5MIN) budgetLocked = true
-            else { buzz = candidate; buzzTimes += t; lastBuzz = t }
-        }
+            governor.tryFire(t)
+        ) buzz = candidate
 
         val out = JudgeOut(
             state = state, displaySKm = dPace, shownSKm = sh, drawnSKm = drawn,
@@ -287,7 +315,7 @@ class JudgeEngine {
             severity = if (state == JudgeState.OUT) severity else 0,
             beyondSKm = beyond, range = snapped,
             alertAgeSec = if (alert) (t - alertSince).toInt() else 0,
-            buzz = buzz, buzzCount5Min = buzzTimes.size, stepAgeSec = age,
+            buzz = buzz, buzzCount5Min = governor.countLast5Min, stepAgeSec = age, stepIdx = i.stepIdx,
         )
         last = out
         return out
@@ -296,7 +324,10 @@ class JudgeEngine {
     /** Step start or resume: SETTLING again; the raw series is kept (wake from ambient never calls this). */
     private fun resetEpisode() {
         candRun = 0; offRun = 0; alert = false; alertSide = Side.NONE; severity = 0; sevBelowRun = 0
-        armed = true; noCandRun = 0
+        governor.disarmReset()
+        // The noise estimate, WEAK and the marker slot belong to one step: a new step starts them afresh (SETTLING again).
+        sigmaHist.clear(); weak = false; weakRun = 0; strongRun = 0
+        shown = null; gridCand = null; gridRun = 0
     }
 
     private fun blank(i: JudgeInput) = JudgeOut(
@@ -327,12 +358,16 @@ class JudgeEngine {
         return if (c > 0) sum / c else null
     }
 
-    /** Detrended sd of the last 30 s of raw speed, in s/km at speed [vref]; null with fewer than 10 samples. */
-    private fun sigmaRaw(t: Double, vref: Double): Double? {
+    /**
+     * Detrended sd of raw speed over the last 30 s, but only over seconds inside the current step (since [anchor]),
+     * in s/km at the mean speed of those same samples (floored at 1 m/s); null with fewer than 10 samples.
+     * Reading across a step boundary would see the speed change as noise (a walking rest before a run read as WEAK).
+     */
+    private fun sigmaRaw(t: Double): Double? {
         val xs = ArrayList<Double>()
         for (k in samples.indices.reversed()) {
             val s = samples[k]
-            if (s.t <= t - 30.0) break
+            if (s.t <= t - 30.0 || s.t < anchor) break
             s.v?.let { xs += it }
         }
         if (xs.size < 10) return null
@@ -346,6 +381,7 @@ class JudgeEngine {
         val slope = sxy / sxx
         var ss = 0.0
         for (k in 0 until n) { val r = xs[k] - (xm + slope * (k - km)); ss += r * r }
+        val vref = max(xm, 1.0)
         return 1000.0 / (vref * vref) * sqrt(ss / n)
     }
 
