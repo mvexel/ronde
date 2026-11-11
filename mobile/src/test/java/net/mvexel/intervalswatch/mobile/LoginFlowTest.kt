@@ -6,6 +6,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import net.mvexel.intervalswatch.mobile.data.session.SessionState
+import net.mvexel.intervalswatch.mobile.feature.login.LoginUiState
+import net.mvexel.intervalswatch.mobile.feature.settings.SettingsUiState
 
 class LoginFlowTest {
     private val p = PendingLogin("v", "s", 1_000)
@@ -44,7 +47,9 @@ class LoginFlowTest {
     @Test fun settingsAndUiStateToStringHideTheToken() {
         val s = Settings(token = "sekrit-token", authType = AuthType.OAUTH)
         assertFalse(s.toString().contains("sekrit-token"))
-        assertFalse(UiState(settings = s).toString().contains("sekrit-token"))
+        assertFalse(SessionState(settings = s).toString().contains("sekrit-token"))
+        assertFalse(SettingsUiState(settings = s).toString().contains("sekrit-token"))
+        assertFalse(LoginUiState(settings = s).toString().contains("sekrit-token"))
     }
 
     @Test fun oauth403CountsAsAuthRejectionButApiKey403DoesNot() {

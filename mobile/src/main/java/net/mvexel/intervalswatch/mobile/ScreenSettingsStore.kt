@@ -12,17 +12,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
 import net.mvexel.intervalswatch.shared.ScreenSettings
 import net.mvexel.intervalswatch.shared.SettingsSync
+import net.mvexel.intervalswatch.mobile.data.ScreenSettingsSource
 
 /** Phone side of `/settings`: a local copy, written to the Data Layer on every change, merged on arrival. */
-class ScreenSettingsStore(context: Context) : com.google.android.gms.wearable.DataClient.OnDataChangedListener {
+class ScreenSettingsStore(context: Context) : com.google.android.gms.wearable.DataClient.OnDataChangedListener, ScreenSettingsSource {
     private val app = context.applicationContext
     private val prefs = app.getSharedPreferences("screen_settings", Context.MODE_PRIVATE)
     private val client = Wearable.getDataClient(app)
     private val _settings = MutableStateFlow(SettingsSync.decodeOrNull(prefs.getString(SettingsSync.KEY_JSON, null)) ?: ScreenSettings())
-    val settings: StateFlow<ScreenSettings> = _settings.asStateFlow()
+    override val settings: StateFlow<ScreenSettings> = _settings.asStateFlow()
 
     /** A local edit: stamps it, caches it, sends it. */
-    suspend fun update(edit: (ScreenSettings) -> ScreenSettings) {
+    override suspend fun update(edit: (ScreenSettings) -> ScreenSettings) {
         val next = edit(_settings.value).copy(updatedAt = System.currentTimeMillis())
         adopt(next)
         val request = PutDataMapRequest.create(SettingsSync.PATH).apply {

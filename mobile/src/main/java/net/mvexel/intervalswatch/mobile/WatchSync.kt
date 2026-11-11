@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.tasks.await
+import net.mvexel.intervalswatch.mobile.data.plan.visibleForWatch
 import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.SettingsSync
 import net.mvexel.intervalswatch.shared.Sync
@@ -47,8 +48,11 @@ object WatchSync {
             Wearable.getNodeClient(context).connectedNodes.await().map { it.displayName }
         }.getOrDefault(emptyList())
 
-    /** Fetch from intervals.icu and push to the watch. Returns what was sent. */
-    suspend fun syncNow(context: Context, settings: Settings): List<Workout> {
+    /**
+     * Fetch from intervals.icu and push to the watch, leaving out [hiddenIds] (hidden on the Plan tab).
+     * Returns everything fetched, hidden ones included, so the Plan tab can still list them.
+     */
+    suspend fun syncNow(context: Context, settings: Settings, hiddenIds: Collection<Long> = emptyList()): List<Workout> {
         val workouts = try {
             IntervalsApi().plannedWorkouts(settings)
         } catch (e: AuthExpiredException) {
@@ -56,7 +60,7 @@ object WatchSync {
             throw e
         }
         pushLoggedIn(context, true)
-        push(context, workouts)
+        push(context, visibleForWatch(workouts, hiddenIds))
         return workouts
     }
 }

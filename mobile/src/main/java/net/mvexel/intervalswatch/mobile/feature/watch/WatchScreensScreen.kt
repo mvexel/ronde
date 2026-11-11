@@ -1,4 +1,4 @@
-package net.mvexel.intervalswatch.mobile
+package net.mvexel.intervalswatch.mobile.feature.watch
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
