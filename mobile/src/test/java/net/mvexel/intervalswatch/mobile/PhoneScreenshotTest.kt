@@ -231,4 +231,14 @@ class PhoneScreenshotTest {
     @Test fun watchScreensRun() = tab(Tab.WATCH) {
         WatchScreensScreen(ScreenSettings(), watchConnected = true, onEdit = {}, onTestBuzz = {}, onBack = {})
     }
+
+    /** A phone font scale above 1 must not push the round preview's slots into the bezel. */
+    @Test fun watchScreensRunLargeFont() = tab(Tab.WATCH) {
+        val d = androidx.compose.ui.platform.LocalDensity.current
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, fontScale = 1.3f),
+        ) {
+            WatchScreensScreen(ScreenSettings(), watchConnected = true, onEdit = {}, onTestBuzz = {}, onBack = {})
+        }
+    }
 }
