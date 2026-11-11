@@ -33,10 +33,11 @@ import kotlinx.coroutines.flow.StateFlow
 import net.mvexel.intervalswatch.mobile.PendingLogin
 import net.mvexel.intervalswatch.mobile.data.session.Session
 import net.mvexel.intervalswatch.mobile.data.session.SessionState
-import net.mvexel.intervalswatch.mobile.feature.history.ActivityDetailRoute
-import net.mvexel.intervalswatch.mobile.feature.history.ActivityDetailViewModel
 import net.mvexel.intervalswatch.mobile.feature.history.HistoryRoute
 import net.mvexel.intervalswatch.mobile.feature.history.HistoryViewModel
+import net.mvexel.intervalswatch.mobile.feature.history.detail.ActivityDetailRoute
+import net.mvexel.intervalswatch.mobile.feature.history.detail.ActivityDetailViewModel
+import net.mvexel.intervalswatch.mobile.feature.history.detail.RepositoryDetailLoader
 import net.mvexel.intervalswatch.mobile.feature.login.LoginRoute
 import net.mvexel.intervalswatch.mobile.feature.login.LoginViewModel
 import net.mvexel.intervalswatch.mobile.feature.plan.PlanRoute
@@ -128,7 +129,8 @@ private fun SignedIn(container: AppContainer, recordings: RecordingsViewModel, a
             }
             composable(Routes.ACTIVITY, arguments = listOf(navArgument(Routes.ARG_ID) { type = NavType.StringType })) { e ->
                 val id = e.arguments!!.getString(Routes.ARG_ID)!!
-                ActivityDetailRoute(viewModel { ActivityDetailViewModel(id, container.activityRepository) }) { nav.popBackStack() }
+                // TODO(detail-loader): use container.activityDetailLoader once the sync work adds it to AppContainer.
+                ActivityDetailRoute(viewModel { ActivityDetailViewModel(RepositoryDetailLoader(container.activityRepository), id) }) { nav.popBackStack() }
             }
             composable(Routes.WATCH) {
                 WatchRoute(viewModel { WatchViewModel(container.session) }, recordings, actions) { nav.navigate(Routes.WATCH_SCREENS) }

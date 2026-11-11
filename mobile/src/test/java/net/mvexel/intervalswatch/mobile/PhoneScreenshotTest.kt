@@ -7,10 +7,12 @@ import net.mvexel.intervalswatch.mobile.app.MainTabsScaffold
 import net.mvexel.intervalswatch.mobile.app.Tab
 import net.mvexel.intervalswatch.mobile.data.db.ActivityEntity
 import net.mvexel.intervalswatch.mobile.data.plan.PlanItem
-import net.mvexel.intervalswatch.mobile.feature.history.ActivityDetailScreen
-import net.mvexel.intervalswatch.mobile.feature.history.ActivityDetailUiState
 import net.mvexel.intervalswatch.mobile.feature.history.HistoryScreen
 import net.mvexel.intervalswatch.mobile.feature.history.HistoryUiState
+import net.mvexel.intervalswatch.mobile.feature.history.detail.ActivityDetailScreen
+import net.mvexel.intervalswatch.mobile.feature.history.detail.ActivityDetailUiState
+import net.mvexel.intervalswatch.mobile.feature.history.detail.DetailFixtures
+import net.mvexel.intervalswatch.mobile.feature.history.detail.DetailModel
 import net.mvexel.intervalswatch.mobile.feature.login.LoginScreen
 import net.mvexel.intervalswatch.mobile.feature.login.LoginUiState
 import net.mvexel.intervalswatch.mobile.feature.plan.PlanScreen
@@ -86,15 +88,12 @@ class PhoneScreenshotTest {
         )
     }
 
-    @Test fun activityDetail() = tab(Tab.HISTORY) {
-        ActivityDetailScreen(
-            ActivityDetailUiState(
-                ActivityEntity("i2", "Tempo run", "Run", "2026-11-09T07:00:00", 10_000.0, 3_000, 3_100, avgSpeed = 3.33, avgHr = 152, load = 64, isRonde = true, pairedEventId = 7, fetchedAt = 0),
-                loaded = true,
-            ),
-            onBack = {},
-        )
+    // The full Workout Detail pages are in ActivityDetailScreenshotTest (tall frames); these two fit one screen.
+    @Test fun detailStravaStub() = tab(Tab.HISTORY) {
+        ActivityDetailScreen(ActivityDetailUiState(loading = false, content = DetailModel.build(DetailFixtures.stravaStub())), onBack = {})
     }
+
+    @Test fun detailLoading() = tab(Tab.HISTORY) { ActivityDetailScreen(ActivityDetailUiState(), onBack = {}) }
 
     @Test fun setup() = paparazzi.snapshot { RunbumTheme { LoginScreen(LoginUiState()) } }
 
