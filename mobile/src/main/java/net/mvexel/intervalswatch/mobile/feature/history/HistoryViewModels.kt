@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +45,7 @@ data class HistoryRow(val activity: ActivityEntity, val result: RunResult? = nul
 data class HistoryUiState(
     val rows: List<HistoryRow> = emptyList(),
     val loading: Boolean = true,
+    /** True only while a pull-to-refresh runs; the quiet refresh on open shows no spinner. */
     val refreshing: Boolean = false,
 ) {
     val activities: List<ActivityEntity> get() = rows.map { it.activity }
@@ -86,7 +88,9 @@ class HistoryViewModel(
     private val results: RunResultSource = RunResultSource { null },
     compute: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
-    private val refreshing = MutableStateFlow(false)
+    /** A pull-to-refresh is running: drives the spinner. The refresh on open runs quietly. */
+    private val pulling = MutableStateFlow(false)
+    private var quiet: Job? = null
 
     /** Analysed results by activity id and `analyzed`, so an unchanged activity is analysed once. Misses are retried. */
     private val memo = HashMap<Pair<String, String?>, RunResult>()
@@ -100,29 +104,33 @@ class HistoryViewModel(
         emit(filled)
     }.flowOn(compute)
 
-    val state: StateFlow<HistoryUiState> = combine(rows, refreshing) { r, busy -> HistoryUiState(r, loading = false, refreshing = busy) }
+    val state: StateFlow<HistoryUiState> = combine(rows, pulling) { r, busy -> HistoryUiState(r, loading = false, refreshing = busy) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, HistoryUiState())
 
     init {
-        load(force = false)
+        // Quiet: the list is already shown from Room, so a spinner on every open is noise.
+        quiet = viewModelScope.launch { refreshQuietly(force = false) }
     }
 
     /** Looks again for cached results of rows that have none yet; no network. */
     fun recheckResults() = recheck.update { it + 1 }
 
     /** Pull-to-refresh: always asks intervals.icu, past the repository's throttle. */
-    fun refresh() = load(force = true)
-
-    private fun load(force: Boolean) {
-        if (refreshing.value) return
+    fun refresh() {
+        if (pulling.value) return
+        pulling.value = true
         viewModelScope.launch {
-            refreshing.value = true
             try {
-                runCatching { repo.refresh(force = force) }.onFailure { if (it is CancellationException) throw it }
+                quiet?.join() // never two fetches at once
+                refreshQuietly(force = true)
             } finally {
-                refreshing.value = false
+                pulling.value = false
             }
         }
+    }
+
+    private suspend fun refreshQuietly(force: Boolean) {
+        runCatching { repo.refresh(force = force) }.onFailure { if (it is CancellationException) throw it }
     }
 
     private suspend fun resultOf(a: ActivityEntity): RunResult? {

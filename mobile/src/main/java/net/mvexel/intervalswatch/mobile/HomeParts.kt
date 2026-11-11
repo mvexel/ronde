@@ -15,6 +15,7 @@ import net.mvexel.intervalswatch.mobile.ui.RingDisc
 import net.mvexel.intervalswatch.shared.Format
 import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.Workout
+import net.mvexel.intervalswatch.shared.StepLength
 import net.mvexel.intervalswatch.shared.WorkoutStep
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -22,10 +23,10 @@ import java.time.LocalDateTime
 /** One arc of a workout ring, in degrees clockwise from 12 o'clock. */
 data class RingArc(val start: Float, val sweep: Float, val kind: StepKind)
 
-/** Each step an arc proportional to its duration, with gaps (visual-design.md §5.1). */
+/** Each step an arc proportional to its estimated duration ([StepLength], same as the watch), with gaps (visual-design.md §5.1). */
 fun ringArcs(steps: List<WorkoutStep>): List<RingArc> {
     if (steps.isEmpty()) return emptyList()
-    val weights = steps.map { (it.durationSec ?: (it.distanceM?.let { m -> m / 3.0 }?.toInt()) ?: 300).coerceAtLeast(1).toFloat() }
+    val weights = steps.map { StepLength.estimatedSec(it).toFloat().coerceAtLeast(1f) }
     val gap = if (steps.size > 12) 1.6f else 2.4f
     val total = weights.sum()
     val usable = 360f - gap * steps.size

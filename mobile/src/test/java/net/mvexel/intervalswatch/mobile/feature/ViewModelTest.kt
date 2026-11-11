@@ -145,9 +145,9 @@ class ViewModelTest {
     }
 
     /** Records the force flag of each refresh. */
-    private class ForceRecordingRepo(val inner: InMemoryActivityRepository = InMemoryActivityRepository()) : ActivityRepository by inner {
+    private open class ForceRecordingRepo(val inner: InMemoryActivityRepository = InMemoryActivityRepository()) : ActivityRepository by inner {
         val forces = mutableListOf<Boolean>()
-        override suspend fun refresh(force: Boolean) {
+        override open suspend fun refresh(force: Boolean) {
             forces += force
         }
     }
@@ -156,6 +156,22 @@ class ViewModelTest {
         val repo = ForceRecordingRepo()
         val vm = HistoryViewModel(repo, compute = main.dispatcher)
         vm.refresh()
+        assertEquals(listOf(false, true), repo.forces)
+        assertFalse(vm.state.value.refreshing)
+    }
+
+    @Test fun historyRefreshOnOpenIsQuietAndOnlyPullShowsTheSpinner() {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val repo = object : ForceRecordingRepo() {
+            override suspend fun refresh(force: Boolean) { forces += force; gate.await() }
+        }
+        val vm = HistoryViewModel(repo, compute = main.dispatcher)
+        assertEquals(listOf(false), repo.forces)
+        assertFalse(vm.state.value.refreshing) // open refresh still running, no spinner
+        vm.refresh()
+        assertTrue(vm.state.value.refreshing) // pull: spinner, waits for the open refresh first
+        assertEquals(listOf(false), repo.forces)
+        gate.complete(Unit)
         assertEquals(listOf(false, true), repo.forces)
         assertFalse(vm.state.value.refreshing)
     }
