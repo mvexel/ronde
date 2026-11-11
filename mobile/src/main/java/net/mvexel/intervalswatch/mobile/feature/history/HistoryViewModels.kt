@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import net.mvexel.intervalswatch.mobile.data.activity.ActivityRepository
 import net.mvexel.intervalswatch.mobile.data.db.ActivityEntity
-import net.mvexel.intervalswatch.mobile.data.db.ActivityStreams
 import net.mvexel.intervalswatch.shared.Verdict
 import net.mvexel.intervalswatch.shared.WorkoutStep
 
@@ -57,16 +56,4 @@ class HistoryViewModel(private val repo: ActivityRepository) : ViewModel() {
             }
         }
     }
-}
-
-data class ActivityDetailUiState(
-    val activity: ActivityEntity? = null,
-    val streams: ActivityStreams? = null,
-    val loaded: Boolean = false,
-)
-
-/** One activity by intervals.icu id, with its streams when stored. */
-class ActivityDetailViewModel(id: String, repo: ActivityRepository) : ViewModel() {
-    val state: StateFlow<ActivityDetailUiState> = combine(repo.activity(id), repo.streams(id)) { a, s -> ActivityDetailUiState(a, s, loaded = true) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ActivityDetailUiState())
 }

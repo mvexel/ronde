@@ -9,7 +9,6 @@ import net.mvexel.intervalswatch.mobile.UploadState
 import net.mvexel.intervalswatch.mobile.app.AppViewModel
 import net.mvexel.intervalswatch.mobile.data.activity.InMemoryActivityRepository
 import net.mvexel.intervalswatch.mobile.data.db.ActivityEntity
-import net.mvexel.intervalswatch.mobile.data.db.ActivityStreams
 import net.mvexel.intervalswatch.mobile.data.db.PlannedWorkoutPrefsEntity
 import net.mvexel.intervalswatch.mobile.data.session.SessionState
 import net.mvexel.intervalswatch.mobile.fakes.FakePrefsDao
@@ -17,7 +16,6 @@ import net.mvexel.intervalswatch.mobile.fakes.FakeRecordings
 import net.mvexel.intervalswatch.mobile.fakes.FakeScreenSettings
 import net.mvexel.intervalswatch.mobile.fakes.FakeSession
 import net.mvexel.intervalswatch.mobile.fakes.MainDispatcherRule
-import net.mvexel.intervalswatch.mobile.feature.history.ActivityDetailViewModel
 import net.mvexel.intervalswatch.mobile.feature.history.HistoryViewModel
 import net.mvexel.intervalswatch.mobile.feature.login.LoginViewModel
 import net.mvexel.intervalswatch.mobile.feature.plan.PlanViewModel
@@ -137,22 +135,6 @@ class ViewModelTest {
         repo.put(activity("i2", "2026-11-03T07:00:00", ronde = true))
         assertEquals(listOf("i2", "i1"), vm.state.value.activities.map { it.id })
         assertTrue(vm.state.value.activities.first().isRonde)
-    }
-
-    @Test fun activityDetailReadsActivityAndStreams() {
-        val repo = InMemoryActivityRepository(
-            listOf(activity("i9", "2026-11-01T07:00:00")),
-            listOf(ActivityStreams("i9", time = doubleArrayOf(0.0, 1.0, 2.0), latlng = doubleArrayOf(40.7, -111.9))),
-        )
-        val st = ActivityDetailViewModel("i9", repo).state.value
-        assertTrue(st.loaded)
-        assertEquals("i9", st.activity?.id)
-        assertEquals(3, st.streams?.samples)
-        assertTrue(st.streams!!.hasMap)
-
-        val missing = ActivityDetailViewModel("nope", repo).state.value
-        assertTrue(missing.loaded)
-        assertNull(missing.activity)
     }
 
     @Test fun watchMirrorsSessionAndSyncs() {

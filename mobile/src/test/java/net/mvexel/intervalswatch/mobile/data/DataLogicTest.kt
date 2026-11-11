@@ -12,8 +12,6 @@ import net.mvexel.intervalswatch.mobile.data.db.isRondeExternalId
 import net.mvexel.intervalswatch.mobile.data.plan.arrange
 import net.mvexel.intervalswatch.mobile.data.plan.visibleForWatch
 import net.mvexel.intervalswatch.mobile.feature.history.activityMeta
-import net.mvexel.intervalswatch.mobile.feature.history.chartsPlaceholder
-import net.mvexel.intervalswatch.mobile.feature.history.summaryRows
 import net.mvexel.intervalswatch.shared.RecordingProtocol
 import net.mvexel.intervalswatch.shared.Samples
 import org.junit.Assert.assertArrayEquals
@@ -70,9 +68,6 @@ class DataLogicTest {
         val a = ActivityEntity("i1", "Tempo", "Run", "2026-11-09T07:00:00", distanceM = 10_000.0, movingTimeSec = 3_000, avgHr = 150, fetchedAt = 0)
         val meta = activityMeta(a, LocalDate.of(2026, 11, 9))
         assertTrue(meta, meta.startsWith("Today · 07:00 · Run · "))
-        assertEquals(listOf("Distance", "Moving time", "Avg heart rate"), summaryRows(a).map { it.first })
-        assertEquals("No streams on the phone yet.", chartsPlaceholder(null))
-        assertEquals("2 samples. Charts: coming soon.", chartsPlaceholder(ActivityStreams("i1", time = doubleArrayOf(0.0, 1.0))))
     }
 
     @Test fun detailRoutesBelongToTheirTab() {
