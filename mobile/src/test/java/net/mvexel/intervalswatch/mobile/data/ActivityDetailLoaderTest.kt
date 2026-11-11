@@ -14,6 +14,7 @@ import net.mvexel.intervalswatch.mobile.data.activity.LocalFitSource
 import net.mvexel.intervalswatch.mobile.data.activity.detailErrorMessage
 import net.mvexel.intervalswatch.mobile.data.activity.toEntity
 import net.mvexel.intervalswatch.mobile.data.db.RondeDatabase
+import net.mvexel.intervalswatch.mobile.data.db.decode
 import net.mvexel.intervalswatch.mobile.fixture
 import net.mvexel.intervalswatch.shared.EventDto
 import net.mvexel.intervalswatch.shared.FitWriter
@@ -73,7 +74,7 @@ class ActivityDetailLoaderTest {
         assertEquals(DetailLoad.Loading, first[0])
         val d = (first[1] as DetailLoad.Ready).detail
         assertEquals(2, first.size)
-        assertEquals(listOf("activity i1001", "streams i1001 time,velocity_smooth,heartrate,distance,cadence,latlng", "planned 555001"), remote.calls)
+        assertEquals(listOf("activity i1001", "streams i1001 time,velocity_smooth,heartrate,distance,cadence,latlng,moving", "planned 555001"), remote.calls)
 
         assertEquals(Sport.RUN, d.sport)
         assertTrue(d.isRonde)
@@ -188,6 +189,73 @@ class ActivityDetailLoaderTest {
         localFit = LocalFit(RecordingProtocol.fileName(1_794_322_931_000L, "Tempo"), FitWriter.encode(recording(600.0)))
         load("i1001")
         assertEquals("activity i1001", remote.calls.first())
+    }
+
+    /** Finding 7: a failed planned workout keeps the activity and streams, and is tried again next time. */
+    @Test fun failedPlannedWorkoutDegradesAndIsRetried() {
+        remote.plannedError = IOException("intervals.icu HTTP 500")
+        val first = load("i1001")
+        val d = (first.last() as DetailLoad.Ready).detail
+        assertEquals(6, d.streams!!.size)
+        assertNull(d.plannedSteps)
+        assertEquals(listOf(TimeSpan(0.0, 2.0), TimeSpan(2.0, 4.0)), d.boundaries)
+        assertEquals(3, remote.calls.size)
+
+        remote.plannedError = null
+        val second = load("i1001")
+        assertEquals(2, second.size) // cache (without steps), then cache plus the planned workout
+        assertNull((second[0] as DetailLoad.Ready).detail.plannedSteps)
+        assertEquals(8, (second[1] as DetailLoad.Ready).detail.plannedSteps!!.size)
+        assertEquals("planned 555001", remote.calls.last())
+        assertEquals(4, remote.calls.size) // only the planned call
+
+        assertEquals(1, load("i1001").size)
+        assertEquals(4, remote.calls.size)
+    }
+
+    @Test fun retryThatFailsAgainKeepsTheCacheQuietly() {
+        remote.plannedError = IOException("down")
+        load("i1001")
+        val again = load("i1001")
+        assertEquals(1, again.size)
+        assertTrue(again[0] is DetailLoad.Ready)
+    }
+
+    @Test fun goneEventIsNotRetried() {
+        remote.planned.clear()
+        load("i1001")
+        assertEquals(1, load("i1001").size)
+        assertEquals(1, remote.calls.count { it.startsWith("planned") })
+    }
+
+    @Test fun signedOutPlannedDoesNotFailTheLoad() {
+        remote.plannedError = net.mvexel.intervalswatch.mobile.data.activity.NotSignedInException()
+        assertTrue(load("i1001").last() is DetailLoad.Ready)
+    }
+
+    /** Finding 3: intervals.icu's `moving` stream reaches Room and the analysis. */
+    @Test fun movingStreamFromIntervals() = runBlocking {
+        remote.streams["i1001"] = remote.streams["i1001"]!! + IntervalsActivityJson.streams(
+            """[{"type": "moving", "data": [false, true, true, false, null, true]}]""",
+        )
+        val d = (load("i1001").last() as DetailLoad.Ready).detail
+        assertEquals(listOf(false, true, true, false, true, true), d.streams!!.moving!!.toList())
+        assertEquals(listOf(false, true, true, false, true, true), db.streams().get("i1001")!!.decode().moving!!.toList())
+    }
+
+    @Test fun noMovingStreamLeavesItNull() {
+        assertNull((load("i1001").last() as DetailLoad.Ready).detail.streams!!.moving)
+    }
+
+    @Test fun movingFromTheKeptFitPauses() {
+        localFit = LocalFit(RecordingProtocol.fileName(1_794_322_931_000L, "Tempo", 555001), FitWriter.encode(recording(3120.0)))
+        val moving = (load("i1001").last() as DetailLoad.Ready).detail.streams!!.moving!!
+        assertEquals(4, moving.size)
+        assertTrue(moving.all { it }) // the pause (2, 3) covers no whole sample interval here
+        assertEquals(
+            listOf(true, true, false, false, true),
+            net.mvexel.intervalswatch.mobile.data.activity.movingFromPauses(doubleArrayOf(0.0, 1.0, 2.0, 3.0, 4.0), listOf(TimeSpan(1.0, 3.0))).toList(),
+        )
     }
 
     @Test fun errorMessages() {

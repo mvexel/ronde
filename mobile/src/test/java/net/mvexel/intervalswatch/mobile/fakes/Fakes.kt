@@ -63,6 +63,15 @@ class FakePrefsDao : PlannedWorkoutPrefsDao {
     override suspend fun hiddenIds() = rows.value.values.filter { it.hidden }.map { it.eventId }
     override suspend fun maxPinnedOrder() = rows.value.values.filter { it.pinned }.maxOfOrNull { it.sortOrder } ?: 0
     override suspend fun upsert(prefs: PlannedWorkoutPrefsEntity) = rows.update { it + (prefs.eventId to prefs) }
+    override suspend fun insertDefault(eventId: Long) = rows.update { if (eventId in it) it else it + (eventId to PlannedWorkoutPrefsEntity(eventId)) }
+    override suspend fun updateHidden(eventId: Long, hidden: Boolean) = change(eventId) { it.copy(hidden = hidden) }
+    override suspend fun updatePinnedLast(eventId: Long) = rows.update { m ->
+        val order = (m.values.filter { it.pinned }.maxOfOrNull { it.sortOrder } ?: 0) + 1
+        m[eventId]?.let { m + (eventId to it.copy(pinned = true, sortOrder = order)) } ?: m
+    }
+    override suspend fun updateUnpinned(eventId: Long) = change(eventId) { it.copy(pinned = false, sortOrder = 0) }
+    private fun change(id: Long, f: (PlannedWorkoutPrefsEntity) -> PlannedWorkoutPrefsEntity) =
+        rows.update { m -> m[id]?.let { m + (id to f(it)) } ?: m }
 }
 
 class FakeRecordings(var items: List<RecordingItem> = emptyList()) : RecordingsSource {

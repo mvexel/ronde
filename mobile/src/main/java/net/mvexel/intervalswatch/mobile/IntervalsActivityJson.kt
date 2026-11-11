@@ -149,7 +149,10 @@ object IntervalsActivityJson {
         }
     }
 
-    private fun doubles(a: JsonArray) = DoubleArray(a.size) { i -> (a[i] as? JsonPrimitive)?.doubleOrNull ?: Double.NaN }
+    /** Numbers as is, booleans (the `moving` stream) as 1/0, anything else NaN. */
+    private fun doubles(a: JsonArray) = DoubleArray(a.size) { i ->
+        (a[i] as? JsonPrimitive)?.let { p -> p.doubleOrNull ?: p.booleanOrNull?.let { if (it) 1.0 else 0.0 } } ?: Double.NaN
+    }
 
     private fun JsonObject.str(k: String): String? = when (val v = this[k]) {
         null, JsonNull -> null

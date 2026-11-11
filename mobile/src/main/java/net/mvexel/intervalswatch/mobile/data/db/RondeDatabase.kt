@@ -10,9 +10,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         ActivityEntity::class, ActivityStreamsEntity::class, PlannedWorkoutPrefsEntity::class,
-        ActivityDetailEntity::class, SyncStateEntity::class,
+        ActivityDetailEntity::class, SyncStateEntity::class, PlannedListEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class RondeDatabase : RoomDatabase() {
@@ -21,6 +21,7 @@ abstract class RondeDatabase : RoomDatabase() {
     abstract fun plannedWorkoutPrefs(): PlannedWorkoutPrefsDao
     abstract fun details(): ActivityDetailDao
     abstract fun syncState(): SyncStateDao
+    abstract fun plannedList(): PlannedListDao
 
     companion object {
         fun build(context: Context): RondeDatabase =
@@ -51,6 +52,21 @@ abstract class RondeDatabase : RoomDatabase() {
             }
         }
 
-        val MIGRATIONS = arrayOf(MIGRATION_1_2)
+        /**
+         * 2 → 3: streams gain `moving` (one byte per sample); the last fetched planned list gets its own table.
+         * Additive only: every row, the prefs (user data) included, is kept.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `activity_streams` ADD COLUMN `moving` BLOB")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `planned_list` (`id` INTEGER NOT NULL, `json` TEXT NOT NULL, " +
+                        "`fetched_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+            }
+        }
+
+        /** A path from every exported schema version (mobile/schemas) to the current one; MigrationTest covers each. */
+        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
     }
 }

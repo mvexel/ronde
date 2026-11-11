@@ -7,6 +7,7 @@ import net.mvexel.intervalswatch.mobile.IcuStream
 import net.mvexel.intervalswatch.mobile.data.db.ActivityDetailEntity
 import net.mvexel.intervalswatch.mobile.data.db.ActivityEntity
 import net.mvexel.intervalswatch.mobile.data.db.ActivityStreamsEntity
+import net.mvexel.intervalswatch.mobile.data.db.MovingCodec
 import net.mvexel.intervalswatch.mobile.data.db.StreamCodec
 import net.mvexel.intervalswatch.mobile.data.db.decode
 import net.mvexel.intervalswatch.shared.IntervalsParser
@@ -40,6 +41,13 @@ internal object ActivityDetailCodec {
 /** Streams intervals.icu is asked for. `velocity_smooth` is preferred; plain `velocity` is the fallback. */
 internal val WANTED_STREAMS = listOf("time", "velocity_smooth", "velocity", "heartrate", "watts", "distance", "cadence", "latlng")
 
+/**
+ * intervals.icu's computed moving flag per sample. Asked for with the others even when `stream_types` does not list
+ * it (it is derived, not recorded, so it may not be listed); an absent stream costs nothing, it is just not in the
+ * reply. UNVERIFIED against the live API: the research doc does not cover it; the parser takes booleans or 0/1.
+ */
+internal const val MOVING_STREAM = "moving"
+
 /** intervals.icu streams → the Room row. Streams whose length differs from `time` are dropped. */
 internal fun icuStreamsToEntity(id: String, streams: List<IcuStream>, routeFallback: List<Pair<Double, Double>>?): ActivityStreamsEntity {
     val by = streams.associateBy { it.type }
@@ -62,8 +70,22 @@ internal fun icuStreamsToEntity(id: String, streams: List<IcuStream>, routeFallb
         distance = col("distance")?.let(StreamCodec::encode),
         latlng = latlng?.let(StreamCodec::encode),
         cadence = col("cadence")?.let(StreamCodec::encode),
+        // NaN (null in the JSON) counts as moving: unknown should not take time out.
+        moving = by[MOVING_STREAM]?.data?.takeIf { time != null && it.size == time.size }
+            ?.let { m -> MovingCodec.encode(BooleanArray(m.size) { i -> m[i] != 0.0 }) },
     )
 }
+
+/**
+ * The moving flags of the watch's own recording: a sample is stopped when its interval (previous sample, this
+ * sample] lies inside a pause. The FIT has no per-sample flag; its pauses (timer stop/start) are the source.
+ */
+internal fun movingFromPauses(timeSec: DoubleArray, pauses: List<TimeSpan>): BooleanArray =
+    BooleanArray(timeSec.size) { i ->
+        val t = timeSec[i]
+        val prev = if (i == 0) t else timeSec[i - 1]
+        pauses.none { p -> prev >= p.startSec && t <= p.endSec && t > p.startSec }
+    }
 
 /** The watch's own recording → the Room row (route interleaved from the samples' positions). */
 internal fun recordingToEntity(id: String, rec: Recording): ActivityStreamsEntity {
@@ -79,6 +101,7 @@ internal fun recordingToEntity(id: String, rec: Recording): ActivityStreamsEntit
         distance = s.distanceM?.let(StreamCodec::encode),
         latlng = latlng?.let(StreamCodec::encode),
         cadence = s.cadence?.let(StreamCodec::encode),
+        moving = MovingCodec.encode(movingFromPauses(s.timeSec, s.pauses)),
     )
 }
 
@@ -113,6 +136,7 @@ internal fun DbStreams.toShared(pauses: List<TimeSpan>): SharedStreams? {
         watts = ok(watts),
         cadence = ok(cadence),
         distanceM = ok(distance),
+        moving = moving?.takeIf { it.size == t.size },
         pauses = pauses,
     )
 }
