@@ -491,7 +491,9 @@ class ExerciseService : LifecycleService() {
         val r = recorder ?: return
         val wall = wallSec()
         if (state?.isPaused == true) r.pause(wall) else r.resume(wall)
-        e.current?.let { r.onStep(e.index, it, wall, d) }
+        // Once the plan has run out, close its last lap: time after it belongs to no step.
+        val step = e.current
+        if (step != null) r.onStep(e.index, step, wall, d) else r.finishPlan(wall, d)
     }
 
     /** Sample made from the series values at wall-clock second [wall]. */

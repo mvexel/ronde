@@ -37,6 +37,7 @@ object FitWriter {
     private val LAP = listOf(
         Field(253, 4, U32), Field(2, 4, U32), Field(7, 4, U32), Field(8, 4, U32), Field(9, 4, U32),
         Field(254, 2, U16), Field(0, 1, ENUM), Field(1, 1, ENUM), Field(25, 1, ENUM), Field(23, 1, ENUM),
+        Field(71, 2, U16), // wkt_step_index: the plan step the lap was recorded for
     )
     private val SESSION = listOf(
         Field(253, 4, U32), Field(2, 4, U32), Field(7, 4, U32), Field(8, 4, U32), Field(9, 4, U32),
@@ -120,7 +121,7 @@ object FitWriter {
             }
             data(
                 3, LAP, fit(l.endSec), fit(l.startSec), ms(l.endSec - l.startSec), ms(rec.timerBetween(l.startSec, l.endSec)),
-                cm(l.endM - l.startM), i.toLong(), 9, 1, sport, intensity,
+                cm(l.endM - l.startM), i.toLong(), 9, 1, sport, intensity, l.stepIndex?.toLong()?.coerceIn(0, 0xFFFE),
             )
         }
 
