@@ -95,6 +95,8 @@ data class Session(
     val judge: JudgeOut? = null,
     /** The colour-band wash decision for this second (v5 section 6); never set in ambient. */
     val wash: WashState? = null,
+    /** The rep that ended just before this step, for the rest result screen. */
+    val lastRep: RepResult? = null,
 ) {
     fun live(metric: Metric): Double? = when (metric) {
         Metric.POWER -> power
@@ -195,6 +197,8 @@ class ExerciseService : LifecycleService() {
     private var judgeOut: JudgeOut? = null
     private var washGate = WashGate()
     private var washState: WashState? = null
+    private var curRep: RepResult? = null
+    private var lastRep: RepResult? = null
 
     // Behaviour settings (B8), read once at workout start: the editor is not reachable during a session.
     private var settings = ScreenSettings()
@@ -268,7 +272,7 @@ class ExerciseService : LifecycleService() {
         pauseSpans.clear(); pausedSince = null; distanceAnchor = 0.0
         listOf(hrSeries, speedSeries, distanceSeries, powerSeries, cadenceSeries, locationSeries).forEach { it.clear() }
         paceSmoother.clear()
-        judge = JudgeEngine(); washGate = WashGate(); judgeOut = null; washState = null
+        judge = JudgeEngine(); washGate = WashGate(); judgeOut = null; washState = null; curRep = null; lastRep = null
         lastJudgeSec = Long.MIN_VALUE; judgeStepIdx = -1
         judgeLog?.close()
         judgeLog = JudgeLogWriter(RecordingStore.logDir(applicationContext))
@@ -492,8 +496,16 @@ class ExerciseService : LifecycleService() {
         lastJudgeSec = sec
     }
 
-    /** Judge-driven haptics (step 3): only the judged state buzzes, never the display value. */
-    private fun onJudged(e: WorkoutEngine, out: JudgeOut, live: Boolean) = Unit
+    /**
+     * Judge-driven haptics: only the judged state buzzes (EASE = one long pulse, PUSH = a flutter), never the display value.
+     * Catch-up seconds after a stalled tick are not buzzed (a buzz late by more than a second would mislead).
+     */
+    private fun onJudged(e: WorkoutEngine, out: JudgeOut, live: Boolean) {
+        if (!live || out.buzz == Side.NONE) return
+        if (!settings.forSport(e.workout.sport).offTargetBuzz || state != ExerciseState.ACTIVE) return
+        Log.i(TAG, "JUDGE BUZZ side=${out.buzz} beyond=${out.beyondSKm} sev=${out.severity} state=${out.state}")
+        judgeBuzzPattern(out.buzz)?.let { vibrate(it) }
+    }
 
     private fun syncWakeLock() {
         val active = state == ExerciseState.ACTIVE && !finishing
@@ -649,7 +661,9 @@ class ExerciseService : LifecycleService() {
         if (target.compare(value, e.progress(t, d).fraction) == 0) counts[0]++
     }
 
+    /** Range alert for steps the judge does not cover (power, HR, cadence, rides): the older 10 s / 30 s rule on the smoothed value. */
     private fun rangeAlert(e: WorkoutEngine, t: Double, d: Double) {
+        if (judgeRange(e, 0.0) != null) return // pace steps: the judge buzzes (onJudged)
         if (!settings.forSport(e.workout.sport).offTargetBuzz) return
         val step = e.current ?: return
         val target = step.primaryTarget ?: return
@@ -684,6 +698,10 @@ class ExerciseService : LifecycleService() {
         val e = engine ?: return
         val t = activeSec()
         val d = distance()
+        stepRange(e.current ?: WorkoutStep("", StepKind.REST), e.progress(t, d).fraction)?.let { r ->
+            if (e.workout.sport != Sport.RIDE) curRep = RepResult(e.index, r, stepAvgSpeed(d - e.stepStartM, e.progress(t, d).elapsedSec))
+        }
+        curRep?.let { if (it.fromStep < e.index) { lastRep = it; curRep = null } }
         _session.value = Session(
             workout = e.workout,
             stepIndex = e.index,
@@ -709,6 +727,7 @@ class ExerciseService : LifecycleService() {
             workInTargetPct = inTargetPercent(rangeSamples.filterKeys { e.workout.steps.getOrNull(it)?.isRep() == true }.values),
             judge = judgeOut,
             wash = washState,
+            lastRep = lastRep,
         )
     }
 

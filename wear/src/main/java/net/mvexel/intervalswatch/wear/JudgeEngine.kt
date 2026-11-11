@@ -177,8 +177,6 @@ class JudgeEngine {
         val nDisp = min(i.displayWindowSec.toDouble(), max(6.0, age - 3.0)).toInt()
         val dMean = meanSpeed(t, nDisp)
         val dPace = dMean?.let { 1000.0 / max(it, 0.1) }
-        updateShown(dPace, g)
-
         // Noise estimate
         val sg = sigmaRaw(t, max(dMean ?: 3.0, 1.0))
         if (sg != null) { sigmaHist.addLast(sg); while (sigmaHist.size > 15) sigmaHist.removeFirst() }
@@ -190,6 +188,8 @@ class JudgeEngine {
             if (!weak && weakRun >= WEAK_ENTER_S) weak = true
             if (weak && strongRun >= WEAK_EXIT_S) weak = false
         }
+        // While WEAK the marker stays on its last slot; after it ends the usual 3 s hold applies.
+        if (!weak || shown == null) updateShown(dPace, g)
         val m = if (sigma != null && sigma >= SIGMA_MARGIN) MARGIN_HI else MARGIN_LO
 
         // Candidate

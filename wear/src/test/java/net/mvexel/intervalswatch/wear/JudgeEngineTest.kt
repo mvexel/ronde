@@ -341,6 +341,16 @@ class JudgeEngineTest {
         d.outs.filter { it.state == JudgeState.WEAK }.forEach { assertEquals(Side.NONE, it.buzz); assertEquals(Side.NONE, it.candidate) }
     }
 
+    @Test fun markerFreezesOnItsLastSlotWhileWeak() {
+        val rng = Random(11)
+        val d = Drive(len = 600.0)
+        d.hold(40, 290.0)
+        repeat(30) { d.tick(speed(290.0) + rng.nextDouble(-1.5, 1.5)) }
+        val weak = d.outs.filter { it.state == JudgeState.WEAK }
+        assertTrue(weak.size > 5)
+        assertEquals(1, weak.map { it.shownSKm }.distinct().size)
+    }
+
     private fun assertNotEquals(a: Any, b: Any) = assertTrue("$a == $b", a != b)
 
     // --- buzz ---

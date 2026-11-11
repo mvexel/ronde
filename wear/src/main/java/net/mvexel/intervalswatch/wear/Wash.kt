@@ -61,15 +61,23 @@ class WashAnimator(private val durationScale: Float = 1f) {
     private var targetOn = false
     private var targetColor = from.argb
 
+    /** Jumps to [state] with no transition (static previews, system animations off). */
+    fun snap(state: WashState) {
+        val on = state.on && state.side != Side.NONE
+        targetOn = on
+        if (on) targetColor = washColor(state.side, state.severity)
+        to = WashFrame(if (on) 1f else 0f, targetColor); from = to; durMs = 0
+    }
+
     /** Sets the target at [nowMs]; call every frame or second, it only restarts a transition when the target changes. */
-    fun target(nowMs: Long, state: WashState) {
+    fun target(nowMs: Long, state: WashState, inMs: Long = IN_MS) {
         val on = state.on && state.side != Side.NONE
         val color = if (on) washColor(state.side, state.severity) else targetColor
         if (on == targetOn && color == targetColor) return
         val cur = sample(nowMs)
         from = cur
         when {
-            on && !targetOn -> { to = WashFrame(1f, color); durMs = IN_MS; easing = ::easeOut; from = WashFrame(cur.alpha, color) }
+            on && !targetOn -> { to = WashFrame(1f, color); durMs = inMs; easing = ::easeOut; from = WashFrame(cur.alpha, color) }
             !on -> { to = WashFrame(0f, cur.argb); durMs = OUT_MS; easing = ::easeIn }
             else -> { to = WashFrame(1f, color); durMs = CROSS_MS; easing = ::easeInOut }
         }
