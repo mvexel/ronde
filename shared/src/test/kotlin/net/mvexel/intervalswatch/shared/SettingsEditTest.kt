@@ -57,14 +57,14 @@ class PaceWindowTest {
         assertEquals(20, nextPaceWindow(15))
         assertEquals(30, nextPaceWindow(20))
         assertEquals(15, nextPaceWindow(30))
-        assertEquals(30, nextPaceWindow(7))
+        assertEquals(20, nextPaceWindow(7))
     }
 
     @Test fun rejectsOtherValuesAndSyncs() {
-        assertEquals(30, SportSettings.RUN_DEFAULT.withPaceWindow(45).paceWindowSec)
+        assertEquals(20, SportSettings.RUN_DEFAULT.withPaceWindow(45).paceWindowSec)
         val s = ScreenSettings().withSport(Sport.RIDE) { it.withPaceWindow(15) }
         assertEquals(15, ScreenSettings.fromJson(s.toJson()).ride.paceWindowSec)
-        assertEquals(30, s.run.paceWindowSec)
+        assertEquals(20, s.run.paceWindowSec)
     }
 }
 
@@ -74,7 +74,8 @@ class PacedRunSettingsTest {
         assertEquals(CueRow.NUMBER, d.cueRow)
         assertEquals(if (PacedRunDefaults.FIRST_RUN_DEFAULTS) ColourBand.ON else ColourBand.OFF, d.colourBand)
         assertEquals(false, PacedRunDefaults.FIRST_RUN_DEFAULTS)
-        assertEquals(30, d.run.paceWindowSec)
+        assertEquals("the old setting keeps its stored default", 20, d.run.paceWindowSec)
+        assertEquals(30, d.run.pacedWindowSec)
     }
 
     @Test fun cycleAndSync() {
@@ -83,6 +84,16 @@ class PacedRunSettingsTest {
         val s = ScreenSettings(cueRow = CueRow.WORDS, colourBand = ColourBand.ON)
         val back = ScreenSettings.fromJson(s.toJson())
         assertEquals(CueRow.WORDS, back.cueRow); assertEquals(ColourBand.ON, back.colourBand)
+    }
+
+    @Test fun pacedWindowIsItsOwnSettingAndLeavesTheOldOneAlone() {
+        assertEquals(15, nextPacedWindow(30)); assertEquals(20, nextPacedWindow(15)); assertEquals(30, nextPacedWindow(20)); assertEquals(30, nextPacedWindow(7))
+        val s = ScreenSettings().withSport(Sport.RUN) { it.withPacedWindow(15) }
+        val back = ScreenSettings.fromJson(s.toJson())
+        assertEquals(15, back.run.pacedWindowSec); assertEquals(20, back.run.paceWindowSec)
+        assertEquals(30, SportSettings.RUN_DEFAULT.withPacedWindow(45).pacedWindowSec)
+        // a user who explicitly chose 20 before the field existed (default 20 is not written) still has 20
+        assertEquals(20, ScreenSettings.fromJson("""{"run":{"flankRight":"STEP_AVG_PACE","totalsFields":["TOTAL_TIME"]}}""").run.paceWindowSec)
     }
 
     @Test fun oldJsonWithoutTheNewFieldsDecodesToDefaults() {

@@ -23,6 +23,8 @@ import net.mvexel.intervalswatch.shared.withSlot
 import net.mvexel.intervalswatch.shared.withSport
 import net.mvexel.intervalswatch.shared.withPaceWindow
 import net.mvexel.intervalswatch.shared.next
+import net.mvexel.intervalswatch.shared.nextPacedWindow
+import net.mvexel.intervalswatch.shared.withPacedWindow
 import net.mvexel.intervalswatch.shared.nextPaceWindow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -228,6 +230,7 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
                 onEditSport = { editSport = it },
                 onToggleOffTarget = { sport -> scope.launch { screenSettings.update { it.withSport(sport) { p -> p.copy(offTargetBuzz = !p.offTargetBuzz) } } } },
                 onPaceWindow = { sport -> scope.launch { screenSettings.update { it.withSport(sport) { p -> p.withPaceWindow(nextPaceWindow(p.paceWindowSec)) } } } },
+                onPacedWindow = { scope.launch { screenSettings.update { it.withSport(Sport.RUN) { p -> p.withPacedWindow(nextPacedWindow(p.pacedWindowSec)) } } } },
                 onCueRow = { scope.launch { screenSettings.update { it.copy(cueRow = it.cueRow.next()) } } },
                 onColourBand = { scope.launch { screenSettings.update { it.copy(colourBand = it.colourBand.next()) } } },
                 onBuzzStrength = {

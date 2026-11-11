@@ -58,8 +58,10 @@ data class SportSettings(
     val totalsFields: List<Field>,
     val workoutRingPage: Boolean = true,
     val offTargetBuzz: Boolean = true,
-    /** Rolling-mean window for the displayed pace: 15, 20 or 30 s, default 30 (v5 section 7 display mean). */
-    val paceWindowSec: Int = 30,
+    /** Rolling-mean window for displayed pace and range alerts on non-paced steps: 15, 20 or 30 s (RF01 FR10 a); the stored default stays 20. */
+    val paceWindowSec: Int = 20,
+    /** Display mean window of the paced step page (v5 section 7: 15, 20 or 30 s, default 30). Its own setting so [paceWindowSec] keeps its meaning. */
+    val pacedWindowSec: Int = DEFAULT_PACED_WINDOW,
 ) {
     companion object {
         val RUN_DEFAULT = SportSettings(

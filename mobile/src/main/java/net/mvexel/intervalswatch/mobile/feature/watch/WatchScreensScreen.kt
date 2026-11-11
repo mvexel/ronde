@@ -49,6 +49,7 @@ import net.mvexel.intervalswatch.shared.CueRow
 import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.PACE_WINDOWS
 import net.mvexel.intervalswatch.shared.withPaceWindow
+import net.mvexel.intervalswatch.shared.withPacedWindow
 import net.mvexel.intervalswatch.shared.Field
 import net.mvexel.intervalswatch.shared.ScreenSettings
 import net.mvexel.intervalswatch.shared.Slot
@@ -107,6 +108,10 @@ internal fun WatchScreensScreen(
             PACE_WINDOWS.map { "$it s" to it }, profile.paceWindowSec,
             label = "Pace smoothing window",
         ) { v -> editSport { it.withPaceWindow(v) } }
+        if (sport == Sport.RUN) Segmented(
+            PACE_WINDOWS.map { "$it s" to it }, profile.pacedWindowSec,
+            label = "Paced-run pace window",
+        ) { v -> editSport { it.withPacedWindow(v) } }
 
         HorizontalDivider()
         Section("All sports")
