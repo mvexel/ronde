@@ -176,7 +176,8 @@ class ActivityDetailLoaderTest {
         localFit = LocalFit(RecordingProtocol.fileName(1_794_322_931_000L, "Tempo", 555001), FitWriter.encode(recording(3120.0)))
         val d = (load("i1001").last() as DetailLoad.Ready).detail
         assertEquals(listOf("planned 555001"), remote.calls)
-        assertEquals(listOf(TimeSpan(0.0, 1.0), TimeSpan(1.0, 3120.0)), d.boundaries)
+        // stepBoundaries(rec) carries each lap's step kind since the shared alignment fix
+        assertEquals(listOf(TimeSpan(0.0, 1.0, kind = StepKind.WARMUP), TimeSpan(1.0, 3120.0, kind = StepKind.ACTIVE)), d.boundaries)
         assertEquals(listOf(TimeSpan(2.0, 3.0)), d.streams!!.pauses)
         assertEquals(4, d.streams!!.size)
         assertEquals(2, d.route!!.size)

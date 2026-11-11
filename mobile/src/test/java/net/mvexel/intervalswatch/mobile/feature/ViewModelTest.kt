@@ -40,7 +40,7 @@ class ViewModelTest {
     @get:Rule val main = MainDispatcherRule()
 
     private val workouts = Samples.workouts
-    private val signedIn = SessionState(loaded = true, settings = Settings(token = "x"), workouts = workouts)
+    private val signedIn = SessionState(loaded = true, settings = Settings(token = "x"), workouts = workouts, workoutsLoaded = true)
 
     @Test fun appViewModelStartsTheSessionAndForwardsRedirects() {
         val s = FakeSession()
@@ -123,6 +123,12 @@ class ViewModelTest {
         assertNull(vm.state.value.item)
         assertTrue(vm.state.value.loaded)
         vm.togglePinned() // no-op, no crash
+    }
+
+    @Test fun plannedWorkoutDetailIsNotLoadedUntilTheStoredListIsRead() {
+        val vm = PlannedWorkoutDetailViewModel(-42, FakeSession(signedIn.copy(workoutsLoaded = false)), FakePrefsDao())
+        assertNull(vm.state.value.item)
+        assertFalse(vm.state.value.loaded) // no "no longer in your plan" after process death
     }
 
     @Test fun historyIsEmptyThenShowsStoredActivitiesNewestFirst() = runTest {

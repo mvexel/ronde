@@ -78,4 +78,16 @@ class DataLogicTest {
         assertEquals(Tab.SETTINGS, Routes.tabOf(Routes.SETTINGS))
         assertNull(Routes.tabOf(null))
     }
+
+    @Test fun spanCodecKeepsStepIndexAndKindAndReadsOldRows() {
+        val spans = listOf(
+            net.mvexel.intervalswatch.shared.TimeSpan(0.0, 600.0, stepIndex = 0, kind = net.mvexel.intervalswatch.shared.StepKind.entries.first()),
+            net.mvexel.intervalswatch.shared.TimeSpan(600.0, 780.5),
+        )
+        val back = net.mvexel.intervalswatch.mobile.data.activity.ActivityDetailCodec.decodeSpans(
+            net.mvexel.intervalswatch.mobile.data.activity.ActivityDetailCodec.encodeSpans(spans))
+        assertEquals(spans, back)
+        assertEquals(listOf(net.mvexel.intervalswatch.shared.TimeSpan(1.0, 2.0)),
+            net.mvexel.intervalswatch.mobile.data.activity.ActivityDetailCodec.decodeSpans("1.0,2.0"))
+    }
 }

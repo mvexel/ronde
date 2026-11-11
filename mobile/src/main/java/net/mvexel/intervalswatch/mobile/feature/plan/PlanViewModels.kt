@@ -61,7 +61,7 @@ class PlannedWorkoutDetailViewModel(private val eventId: Long, session: Session,
 
     val state: StateFlow<PlannedWorkoutDetailUiState> = combine(session.state, prefs.observeAll()) { st, p ->
         val a = arrange(st.workouts, p)
-        PlannedWorkoutDetailUiState((a.visible + a.hidden).firstOrNull { it.workout.id == eventId }, loaded = true)
+        PlannedWorkoutDetailUiState((a.visible + a.hidden).firstOrNull { it.workout.id == eventId }, loaded = st.workoutsLoaded)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, PlannedWorkoutDetailUiState())
 
     fun togglePinned() {

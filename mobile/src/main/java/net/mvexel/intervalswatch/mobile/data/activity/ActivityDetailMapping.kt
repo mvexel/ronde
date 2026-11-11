@@ -12,6 +12,7 @@ import net.mvexel.intervalswatch.mobile.data.db.StreamCodec
 import net.mvexel.intervalswatch.mobile.data.db.decode
 import net.mvexel.intervalswatch.shared.IntervalsParser
 import net.mvexel.intervalswatch.shared.Recording
+import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.TimeSpan
 import net.mvexel.intervalswatch.shared.WorkoutStep
 import net.mvexel.intervalswatch.shared.ActivityStreams as SharedStreams
@@ -23,13 +24,22 @@ internal object ActivityDetailCodec {
     private val json = Json { ignoreUnknownKeys = true; allowSpecialFloatingPointValues = true }
     private val stepsSerializer = ListSerializer(WorkoutStep.serializer())
 
-    fun encodeSpans(spans: List<TimeSpan>?): String? = spans?.joinToString(";") { "${it.startSec},${it.endSec}" }
+    /** "start,end" or "start,end,stepIndex,kind" (step index and kind come from the watch's own laps). */
+    fun encodeSpans(spans: List<TimeSpan>?): String? = spans?.joinToString(";") {
+        if (it.stepIndex == null && it.kind == null) "${it.startSec},${it.endSec}"
+        else "${it.startSec},${it.endSec},${it.stepIndex ?: ""},${it.kind?.name ?: ""}"
+    }
 
     fun decodeSpans(s: String?): List<TimeSpan>? = s?.let { text ->
         if (text.isEmpty()) emptyList()
         else text.split(';').mapNotNull { p ->
-            val (a, b) = p.split(',').takeIf { it.size == 2 } ?: return@mapNotNull null
-            TimeSpan(a.toDoubleOrNull() ?: return@mapNotNull null, b.toDoubleOrNull() ?: return@mapNotNull null)
+            val f = p.split(',').takeIf { it.size == 2 || it.size == 4 } ?: return@mapNotNull null
+            TimeSpan(
+                f[0].toDoubleOrNull() ?: return@mapNotNull null,
+                f[1].toDoubleOrNull() ?: return@mapNotNull null,
+                stepIndex = f.getOrNull(2)?.toIntOrNull(),
+                kind = f.getOrNull(3)?.let { k -> StepKind.entries.firstOrNull { it.name == k } },
+            )
         }
     }
 
