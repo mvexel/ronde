@@ -19,8 +19,12 @@ import net.mvexel.intervalswatch.mobile.data.session.Session
 data class PlanUiState(
     val visible: List<PlanItem> = emptyList(),
     val hidden: List<PlanItem> = emptyList(),
+    /** Kept for the VM API; the Plan screen now lists hidden workouts in place, with their switch off. */
     val showHidden: Boolean = false,
     val busy: Boolean = false,
+    /** Connected watch names; empty = no watch paired (Ronde still works). */
+    val watches: List<String> = emptyList(),
+    val lastSynced: String? = null,
 )
 
 /** Pin and hide, shared by the list and the detail screen. Hiding or unhiding re-sends the list to the watch. */
@@ -40,7 +44,7 @@ class PlanViewModel(private val session: Session, prefs: PlannedWorkoutPrefsDao)
 
     val state: StateFlow<PlanUiState> = combine(session.state, prefs.observeAll(), showHidden) { st, p, show ->
         val a = arrange(st.workouts, p)
-        PlanUiState(a.visible, a.hidden, show, st.busy)
+        PlanUiState(a.visible, a.hidden, show, st.busy, st.watches, st.lastSynced)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, PlanUiState())
 
     fun togglePinned(item: PlanItem) {

@@ -3,20 +3,18 @@ package net.mvexel.intervalswatch.mobile.app
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,6 +49,8 @@ import net.mvexel.intervalswatch.mobile.feature.watch.WatchRoute
 import net.mvexel.intervalswatch.mobile.feature.watch.WatchScreensRoute
 import net.mvexel.intervalswatch.mobile.feature.watch.WatchScreensViewModel
 import net.mvexel.intervalswatch.mobile.feature.watch.WatchViewModel
+import net.mvexel.intervalswatch.mobile.ui.RondeIcons
+import net.mvexel.intervalswatch.mobile.ui.RondeTheme
 
 /** Activity-scoped: starts the session when the app opens and decides login vs tabs. */
 class AppViewModel(private val session: Session) : ViewModel() {
@@ -65,11 +65,20 @@ class AppViewModel(private val session: Session) : ViewModel() {
     fun showStatus(msg: String) = session.showStatus(msg)
 }
 
-enum class Tab(val route: String, val label: String, val icon: ImageVector) {
-    PLAN(Routes.PLAN, "Plan", Icons.Filled.DateRange),
-    HISTORY(Routes.HISTORY, "History", Icons.AutoMirrored.Filled.List),
-    WATCH(Routes.WATCH, "Watch", Icons.Filled.PlayArrow),
-    SETTINGS(Routes.SETTINGS, "Settings", Icons.Filled.Settings),
+enum class Tab(val route: String, val label: String) {
+    PLAN(Routes.PLAN, "Plan"),
+    HISTORY(Routes.HISTORY, "History"),
+    WATCH(Routes.WATCH, "Watch"),
+    SETTINGS(Routes.SETTINGS, "Settings"),
+    ;
+
+    /** Material Symbols: calendar_month, history, watch, settings. */
+    val icon: ImageVector get() = when (this) {
+        PLAN -> RondeIcons.Plan
+        HISTORY -> RondeIcons.History
+        WATCH -> RondeIcons.Watch
+        SETTINGS -> RondeIcons.Settings
+    }
 }
 
 object Routes {
@@ -149,17 +158,28 @@ private fun NavHostController.navigateToTab(tab: Tab) = navigate(tab.route) {
     restoreState = true
 }
 
-/** The bottom bar around a tab's content. Stateless, so screenshot tests can use it. */
+/**
+ * The bottom bar around a tab's content. Stateless, so screenshot tests can use it. The selected tab is an ink
+ * pill with a white icon (direction B), never the Material purple.
+ */
 @Composable
 fun MainTabsScaffold(selected: Tab, onSelect: (Tab) -> Unit, content: @Composable () -> Unit) {
+    val cs = MaterialTheme.colorScheme
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = cs.background,
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+            NavigationBar(containerColor = RondeTheme.colors.navBar, tonalElevation = 0.dp) {
                 Tab.entries.forEach { t ->
+                    val on = t == selected
                     NavigationBarItem(
-                        selected = t == selected, onClick = { onSelect(t) },
-                        icon = { Icon(t.icon, contentDescription = null) }, label = { Text(t.label) },
+                        selected = on, onClick = { onSelect(t) },
+                        icon = { Icon(t.icon, contentDescription = null) },
+                        label = { Text(t.label, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = cs.onSecondaryContainer, selectedTextColor = cs.onSurface,
+                            indicatorColor = cs.secondaryContainer,
+                            unselectedIconColor = cs.onSurfaceVariant, unselectedTextColor = cs.onSurfaceVariant,
+                        ),
                     )
                 }
             }

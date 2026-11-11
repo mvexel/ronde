@@ -1,6 +1,10 @@
 package net.mvexel.intervalswatch.mobile.feature.login
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,8 +39,11 @@ import net.mvexel.intervalswatch.mobile.Settings
 import net.mvexel.intervalswatch.mobile.data.session.Session
 import net.mvexel.intervalswatch.mobile.feature.watch.RecordingActions
 import net.mvexel.intervalswatch.mobile.feature.watch.RecordingsViewModel
-import net.mvexel.intervalswatch.mobile.feature.watch.recordingsSection
-import net.mvexel.intervalswatch.mobile.ui.BrandHeader
+import net.mvexel.intervalswatch.mobile.feature.watch.RecordingsList
+import net.mvexel.intervalswatch.mobile.ui.RingDisc
+import net.mvexel.intervalswatch.mobile.ui.RondeTheme
+import net.mvexel.intervalswatch.mobile.ui.RondeType
+import net.mvexel.intervalswatch.shared.Samples
 
 data class LoginUiState(
     val settings: Settings = Settings(),
@@ -85,24 +92,53 @@ fun LoginScreen(
     actions: RecordingActions = RecordingActions(),
 ) {
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(bottom = 12.dp),
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { BrandHeader(null) }
+        item { OnboardingPlate() }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onLogin, enabled = !st.busy, shape = CircleShape, modifier = Modifier.fillMaxWidth()) { Text("Log in with intervals.icu") }
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onLogin, enabled = !st.busy, shape = CircleShape, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text("Log in with intervals.icu")
+                }
                 if (!st.apiKeyOpen) {
-                    TextButton(onClick = onApiKey) { Text("Use API key instead") }
+                    TextButton(onClick = onApiKey, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Use API key instead") }
                 } else {
                     ApiKeyForm(st.settings, onSave = onSaveApiKey, busy = st.busy)
                 }
-                st.status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                st.status?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
         // Kept recordings stay reachable after a logout (T10 L2).
-        recordingsSection(recordings, actions)
+        if (recordings.isNotEmpty()) {
+            item {
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    RecordingsList(recordings, actions)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The amber plate: allowed on onboarding only (design.md, B with C's plate borrowed for onboarding). Ink on
+ * amber 11.5:1, ink2 on amber 7.1:1; the ring is the launcher icon, full size.
+ */
+@Composable
+private fun OnboardingPlate() {
+    val c = RondeTheme.colors
+    Column(
+        Modifier.fillMaxWidth().background(c.plate, RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+            .padding(horizontal = 24.dp).padding(top = 40.dp, bottom = 28.dp),
+    ) {
+        RingDisc(Samples.workouts.first().steps, size = 96.dp)
+        Text("Ronde", style = RondeType.hero, color = c.plateInk, modifier = Modifier.padding(top = 20.dp))
+        Text("for intervals.icu", style = MaterialTheme.typography.titleMedium, color = c.plateInk)
+        Text(
+            "Your planned workouts from intervals.icu, on your phone and your Wear OS watch. Ronde works without a watch too.",
+            style = MaterialTheme.typography.bodyMedium, color = c.plateInk2, modifier = Modifier.padding(top = 12.dp),
+        )
     }
 }
 

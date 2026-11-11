@@ -1,5 +1,6 @@
 package net.mvexel.intervalswatch.mobile.feature.watch
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,7 +34,7 @@ import net.mvexel.intervalswatch.mobile.StatusIcon
 import net.mvexel.intervalswatch.mobile.UploadState
 import net.mvexel.intervalswatch.mobile.data.RecordingsSource
 import net.mvexel.intervalswatch.mobile.isOpenRecording
-import net.mvexel.intervalswatch.mobile.ui.Overline
+import net.mvexel.intervalswatch.mobile.ui.SectionHeader
 import net.mvexel.intervalswatch.mobile.ui.SurfaceCard
 
 /** Share and Save need an Activity (chooser, document picker), so the activity provides them. */
@@ -64,11 +65,17 @@ class RecordingsViewModel(private val source: RecordingsSource) : ViewModel() {
 
 fun LazyListScope.recordingsSection(recordings: List<RecordingItem>, actions: RecordingActions) {
     if (recordings.isEmpty()) return
-    item { Overline("Recent uploads") }
-    item {
+    item { RecordingsList(recordings, actions) }
+}
+
+/** "Recent uploads" header and the card of recordings. */
+@Composable
+fun RecordingsList(recordings: List<RecordingItem>, actions: RecordingActions) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader("Recent uploads", "${recordings.size} on this phone", Modifier.padding(top = 8.dp))
         SurfaceCard {
             recordings.forEachIndexed { i, r ->
-                if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 RecordingRow(r, actions.onShare, actions.onSave, actions.onRetry)
             }
         }

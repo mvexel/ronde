@@ -23,8 +23,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,6 +37,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import net.mvexel.intervalswatch.mobile.ui.BackHeader
+import net.mvexel.intervalswatch.mobile.ui.RondeSwitch
+import net.mvexel.intervalswatch.mobile.ui.SectionHeader
 import net.mvexel.intervalswatch.shared.BigNumber
 import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.PACE_WINDOWS
@@ -78,10 +79,7 @@ internal fun WatchScreensScreen(
     fun editSport(edit: (SportSettings) -> SportSettings) = onEdit { it.withSport(sport, edit) }
 
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("‹ Back") }
-            Text("Watch screens & alerts", style = MaterialTheme.typography.titleMedium)
-        }
+        BackHeader("Watch screens & alerts", onBack)
         Segmented(listOf("Run" to Sport.RUN, "Ride" to Sport.RIDE), sport) { sport = it }
 
         RoundPreview(profile, sport) { picking = Target.StepSlot(it) }
@@ -148,7 +146,7 @@ internal fun WatchScreensScreen(
 }
 
 @Composable
-private fun Section(title: String) = Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun Section(title: String) = SectionHeader(title, modifier = Modifier.padding(top = 8.dp))
 
 /** Selected state is ink, never cyan (visual-design §6). */
 @Composable
@@ -178,13 +176,7 @@ private fun <T> Segmented(options: List<Pair<String, T>>, selected: T, label: St
 private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(
-            checked, onChange,
-            colors = SwitchDefaults.colors(
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-        )
+        RondeSwitch(checked, onChange)
     }
 }
 

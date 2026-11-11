@@ -1,7 +1,5 @@
 package net.mvexel.intervalswatch.mobile
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -11,17 +9,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import net.mvexel.intervalswatch.mobile.ui.RingDisc
 import net.mvexel.intervalswatch.shared.Format
 import net.mvexel.intervalswatch.shared.StepKind
-import net.mvexel.intervalswatch.shared.Tokens
 import net.mvexel.intervalswatch.shared.Workout
 import net.mvexel.intervalswatch.shared.WorkoutStep
 import java.time.LocalDate
@@ -44,40 +36,16 @@ fun ringArcs(steps: List<WorkoutStep>): List<RingArc> {
     }
 }
 
-private fun kindColor(k: StepKind) = Color(
-    when (k) {
-        StepKind.ACTIVE -> Tokens.WORK
-        StepKind.REST -> Tokens.RECOVERY
-        StepKind.WARMUP, StepKind.COOLDOWN -> Tokens.WARMUP
-    },
-)
-
-/** The workout ring on the black watch disc; work at full stroke, the rest thinner. */
+/** The workout ring on its black disc. Drawing lives in [net.mvexel.intervalswatch.mobile.ui.RingDisc]. */
 @Composable
-fun WorkoutRingDisc(steps: List<WorkoutStep>, size: Dp = 44.dp) {
-    Box(Modifier.size(size).clip(CircleShape).background(Color.Black), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(size)) {
-            val full = this.size.minDimension * 0.11f
-            val inset = full * 1.4f
-            val arcs = ringArcs(steps).ifEmpty { listOf(RingArc(0f, 357f, StepKind.WARMUP)) }
-            arcs.forEach { a ->
-                val w = if (a.kind == StepKind.ACTIVE) full else full * 0.55f
-                drawArc(
-                    kindColor(a.kind), startAngle = a.start - 90f, sweepAngle = a.sweep, useCenter = false,
-                    topLeft = Offset(inset, inset), size = Size(this.size.width - 2 * inset, this.size.height - 2 * inset),
-                    style = Stroke(w, cap = StrokeCap.Butt),
-                )
-            }
-        }
-    }
-}
+fun WorkoutRingDisc(steps: List<WorkoutStep>, size: Dp = 44.dp) = RingDisc(steps, size = size)
 
 /** ✓ / ⟳ / ! in an outlined circle, in the deep colours (never bare bright fills on paper). */
 @Composable
 fun StatusIcon(state: UploadState) {
     val (glyph, color) = when (state) {
         UploadState.UPLOADED -> "✓" to MaterialTheme.colorScheme.onSurface
-        UploadState.PENDING -> "⟳" to MaterialTheme.colorScheme.tertiary
+        UploadState.PENDING -> "⟳" to MaterialTheme.colorScheme.onSurfaceVariant
         UploadState.FAILED -> "!" to MaterialTheme.colorScheme.error
     }
     Box(Modifier.size(28.dp).border(1.5.dp, color, CircleShape), contentAlignment = Alignment.Center) {
