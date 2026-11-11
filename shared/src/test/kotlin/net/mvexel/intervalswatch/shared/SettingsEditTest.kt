@@ -57,13 +57,37 @@ class PaceWindowTest {
         assertEquals(20, nextPaceWindow(15))
         assertEquals(30, nextPaceWindow(20))
         assertEquals(15, nextPaceWindow(30))
-        assertEquals(20, nextPaceWindow(7))
+        assertEquals(30, nextPaceWindow(7))
     }
 
     @Test fun rejectsOtherValuesAndSyncs() {
-        assertEquals(20, SportSettings.RUN_DEFAULT.withPaceWindow(45).paceWindowSec)
-        val s = ScreenSettings().withSport(Sport.RIDE) { it.withPaceWindow(30) }
-        assertEquals(30, ScreenSettings.fromJson(s.toJson()).ride.paceWindowSec)
-        assertEquals(20, s.run.paceWindowSec)
+        assertEquals(30, SportSettings.RUN_DEFAULT.withPaceWindow(45).paceWindowSec)
+        val s = ScreenSettings().withSport(Sport.RIDE) { it.withPaceWindow(15) }
+        assertEquals(15, ScreenSettings.fromJson(s.toJson()).ride.paceWindowSec)
+        assertEquals(30, s.run.paceWindowSec)
+    }
+}
+
+class PacedRunSettingsTest {
+    @Test fun releaseDefaultsAreNumberCueAndNoWash() {
+        val d = ScreenSettings()
+        assertEquals(CueRow.NUMBER, d.cueRow)
+        assertEquals(if (PacedRunDefaults.FIRST_RUN_DEFAULTS) ColourBand.ON else ColourBand.OFF, d.colourBand)
+        assertEquals(false, PacedRunDefaults.FIRST_RUN_DEFAULTS)
+        assertEquals(30, d.run.paceWindowSec)
+    }
+
+    @Test fun cycleAndSync() {
+        assertEquals(CueRow.WORDS, CueRow.NUMBER.next()); assertEquals(CueRow.NUMBER, CueRow.WORDS.next())
+        assertEquals(ColourBand.ON, ColourBand.OFF.next()); assertEquals(ColourBand.OFF, ColourBand.ON.next())
+        val s = ScreenSettings(cueRow = CueRow.WORDS, colourBand = ColourBand.ON)
+        val back = ScreenSettings.fromJson(s.toJson())
+        assertEquals(CueRow.WORDS, back.cueRow); assertEquals(ColourBand.ON, back.colourBand)
+    }
+
+    @Test fun oldJsonWithoutTheNewFieldsDecodesToDefaults() {
+        val old = ScreenSettings.fromJson("""{"buzzStrength":"STRONG","updatedAt":5}""")
+        assertEquals(CueRow.NUMBER, old.cueRow)
+        assertEquals(PacedRunDefaults.colourBand, old.colourBand)
     }
 }

@@ -44,6 +44,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import net.mvexel.intervalswatch.shared.ColourBand
 import net.mvexel.intervalswatch.shared.Metric
 import net.mvexel.intervalswatch.shared.ScreenSettings
 import net.mvexel.intervalswatch.shared.SettingsSync
@@ -90,6 +91,10 @@ data class Session(
     val onTarget: Map<Int, Boolean> = emptyMap(),
     /** Share of all work-step samples (steps with a target) that were in range, 0..100; null when none (ux S3). */
     val workInTargetPct: Int? = null,
+    /** The judge's output for this second (paced steps; null before the first judged second). */
+    val judge: JudgeOut? = null,
+    /** The colour-band wash decision for this second (v5 section 6); never set in ambient. */
+    val wash: WashState? = null,
 ) {
     fun live(metric: Metric): Double? = when (metric) {
         Metric.POWER -> power
@@ -126,6 +131,9 @@ class ExerciseService : LifecycleService() {
 
         private val _session = MutableStateFlow<Session?>(null)
         val session: StateFlow<Session?> = _session.asStateFlow()
+
+        /** Set by the activity: the screen is in ambient mode (judge log field, wash never shown in ambient). */
+        @Volatile var ambient = false
 
         fun start(ctx: Context, workout: Workout) {
             val i = Intent(ctx, ExerciseService::class.java)
@@ -177,6 +185,16 @@ class ExerciseService : LifecycleService() {
     private val cadenceSeries = TimedValues<Double>()
     private val locationSeries = TimedValues<LocationData>()
     private var ongoing: OngoingActivity? = null
+
+    // Paced-run judge (v5 section 7): one step per wall second, one log line per second.
+    private var judge = JudgeEngine()
+    private var judgeLog: JudgeLogWriter? = null
+    private var lastJudgeSec = Long.MIN_VALUE
+    private var judgeStepIdx = -1
+    private var judgeStepStartWall = 0.0
+    private var judgeOut: JudgeOut? = null
+    private var washGate = WashGate()
+    private var washState: WashState? = null
 
     // Behaviour settings (B8), read once at workout start: the editor is not reachable during a session.
     private var settings = ScreenSettings()
@@ -250,6 +268,10 @@ class ExerciseService : LifecycleService() {
         pauseSpans.clear(); pausedSince = null; distanceAnchor = 0.0
         listOf(hrSeries, speedSeries, distanceSeries, powerSeries, cadenceSeries, locationSeries).forEach { it.clear() }
         paceSmoother.clear()
+        judge = JudgeEngine(); washGate = WashGate(); judgeOut = null; washState = null
+        lastJudgeSec = Long.MIN_VALUE; judgeStepIdx = -1
+        judgeLog?.close()
+        judgeLog = JudgeLogWriter(RecordingStore.logDir(applicationContext))
         publish()
 
         try {
@@ -409,9 +431,69 @@ class ExerciseService : LifecycleService() {
         watchPowerMeter()
         countdown(e, t, d)
         sampleRange(e, t, d)
+        judgeTick(e, t, d)
         rangeAlert(e, t, d)
         publish()
     }
+
+    /** Pace range of the step as the judge wants it; null for steps with no pace target (power, HR, cadence, rides). */
+    private fun judgeRange(e: WorkoutEngine, fraction: Double): PaceRange? {
+        if (e.workout.sport == Sport.RIDE) return null
+        val target = e.current?.primaryTarget?.takeIf { it.metric == Metric.PACE } ?: return null
+        val r = target.rangeAt(fraction)
+        return PaceRange.fromSpeeds(r.start, r.endInclusive)
+    }
+
+    /** Step length for the judge window: the timed length, an estimate for a distance step, null for a lap step. */
+    private fun judgeStepLen(e: WorkoutEngine, range: PaceRange?): Double? {
+        val step = e.current ?: return null
+        step.durationSec?.let { return it.toDouble() }
+        val dist = step.distanceM ?: return null
+        val centre = range?.let { r -> listOfNotNull(r.fastSKm, r.slowSKm).average() } ?: return null
+        return dist / 1000.0 * centre
+    }
+
+    /** One judge step per wall second (a late tick catches up, at most 30 s), then one log line each. */
+    private fun judgeTick(e: WorkoutEngine, t: Double, d: Double) {
+        if (state == null || state == ExerciseState.PREPARING || finishing || e.finished) return
+        val wall = wallSec()
+        val sec = Math.floor(wall).toLong()
+        if (lastJudgeSec == Long.MIN_VALUE) lastJudgeSec = sec - 1
+        if (sec <= lastJudgeSec) return
+        val p = e.progress(t, d)
+        if (e.index != judgeStepIdx) { judgeStepIdx = e.index; judgeStepStartWall = wall - p.elapsedSec }
+        val sport = e.workout.sport
+        val range = judgeRange(e, p.fraction)
+        val len = judgeStepLen(e, range)
+        val paused = state?.isPaused == true
+        for (s in maxOf(lastJudgeSec + 1, sec - 30)..sec) {
+            val raw = speedSeries.at(s.toDouble(), 2.5)
+            val out = judge.step(
+                JudgeInput(
+                    tSec = s.toDouble(), rawSpeed = raw, gpsFix = e.workout.indoor || gpsReady,
+                    stepIdx = e.index, stepStartSec = judgeStepStartWall, stepLenSec = len,
+                    stepRemainingSec = p.remainingSec?.let { it + (wall - s) }, range = range, paused = paused,
+                    displayWindowSec = settings.forSport(sport).paceWindowSec,
+                ),
+            )
+            judgeOut = out
+            val amb = ambient
+            val ws = washGate.step(s.toDouble(), out, settings.colourBand == ColourBand.ON && !amb)
+            washState = ws
+            onJudged(e, out, s == sec)
+            judgeLog?.append(
+                JudgeLog.Row(
+                    tMs = recordStartMs + s * 1000L, stepIdx = e.index, stepLenSec = len, rawSpeed = raw, judge = out,
+                    washOn = ws.on && !amb, hr = heartRate?.toInt(), ambient = amb, cueRow = settings.cueRow,
+                    washSetting = settings.colourBand == ColourBand.ON,
+                ),
+            )
+        }
+        lastJudgeSec = sec
+    }
+
+    /** Judge-driven haptics (step 3): only the judged state buzzes, never the display value. */
+    private fun onJudged(e: WorkoutEngine, out: JudgeOut, live: Boolean) = Unit
 
     private fun syncWakeLock() {
         val active = state == ExerciseState.ACTIVE && !finishing
@@ -625,6 +707,8 @@ class ExerciseService : LifecycleService() {
             avgPower = powerMean.value,
             onTarget = rangeSamples.filterValues { it[1] > 0 }.mapValues { it.value[0] * 5 >= it.value[1] * 4 },
             workInTargetPct = inTargetPercent(rangeSamples.filterKeys { e.workout.steps.getOrNull(it)?.isRep() == true }.values),
+            judge = judgeOut,
+            wash = washState,
         )
     }
 
@@ -633,6 +717,7 @@ class ExerciseService : LifecycleService() {
         finishing = true
         ticker?.cancel()
         releaseWakeLock()
+        judgeLog?.close()
         runCatching { client.endExerciseAsync().await() }
         runCatching { client.clearUpdateCallbackAsync(callback).await() }
         powerMeter?.stop()
@@ -716,6 +801,7 @@ class ExerciseService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        judgeLog?.close()
         ticker?.cancel()
         releaseWakeLock()
         powerMeter?.stop()

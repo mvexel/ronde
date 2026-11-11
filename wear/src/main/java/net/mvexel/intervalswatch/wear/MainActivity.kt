@@ -115,10 +115,12 @@ class MainActivity : ComponentActivity() {
         override fun onEnterAmbient(ambientDetails: AmbientLifecycleObserver.AmbientDetails) {
             burnIn.value = ambientDetails.burnInProtectionRequired
             ambient.value = true
+            ExerciseService.ambient = true
             ambientTick.value++
         }
         override fun onExitAmbient() {
             ambient.value = false
+            ExerciseService.ambient = false
             logWake("exit")
             lifecycleScope.launch { delay(1000); logWake("exit+1s") }
         }
