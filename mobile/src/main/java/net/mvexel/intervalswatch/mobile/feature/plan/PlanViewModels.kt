@@ -2,12 +2,10 @@ package net.mvexel.intervalswatch.mobile.feature.plan
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.mvexel.intervalswatch.mobile.data.db.PlannedWorkoutPrefsDao
 import net.mvexel.intervalswatch.mobile.data.db.setHidden
@@ -19,8 +17,6 @@ import net.mvexel.intervalswatch.mobile.data.session.Session
 data class PlanUiState(
     val visible: List<PlanItem> = emptyList(),
     val hidden: List<PlanItem> = emptyList(),
-    /** Kept for the VM API; the Plan screen now lists hidden workouts in place, with their switch off. */
-    val showHidden: Boolean = false,
     val busy: Boolean = false,
     /** Connected watch names; empty = no watch paired (Ronde still works). */
     val watches: List<String> = emptyList(),
@@ -40,11 +36,10 @@ internal class PlanPrefsActions(private val prefs: PlannedWorkoutPrefsDao, priva
 /** The Plan tab: upcoming workouts from the last sync with the user's pin/hide choices applied. */
 class PlanViewModel(private val session: Session, prefs: PlannedWorkoutPrefsDao) : ViewModel() {
     private val actions = PlanPrefsActions(prefs, session)
-    private val showHidden = MutableStateFlow(false)
 
-    val state: StateFlow<PlanUiState> = combine(session.state, prefs.observeAll(), showHidden) { st, p, show ->
+    val state: StateFlow<PlanUiState> = combine(session.state, prefs.observeAll()) { st, p ->
         val a = arrange(st.workouts, p)
-        PlanUiState(a.visible, a.hidden, show, st.busy, st.watches, st.lastSynced)
+        PlanUiState(a.visible, a.hidden, st.busy, st.watches, st.lastSynced)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, PlanUiState())
 
     fun togglePinned(item: PlanItem) {
@@ -54,8 +49,6 @@ class PlanViewModel(private val session: Session, prefs: PlannedWorkoutPrefsDao)
     fun toggleHidden(item: PlanItem) {
         viewModelScope.launch { actions.setHidden(item.workout.id, !item.hidden) }
     }
-
-    fun toggleShowHidden() = showHidden.update { !it }
 
     fun sync() = session.sync()
 }

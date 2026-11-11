@@ -122,11 +122,17 @@ object DetailModel {
     const val MAX_POINTS = 360
     private val unit = PaceUnit.KM
 
+    /** Plan vs actual, or null without planned steps or samples. Shared with the History rows' result rings. */
+    fun analyze(d: ActivityDetail): PlanAnalysis? {
+        val streams = d.streams?.takeIf { d.detailsAvailable && it.size >= 2 } ?: return null
+        val steps = d.plannedSteps?.takeIf { it.isNotEmpty() } ?: return null
+        return PlanVsActual.analyze(steps, d.sport ?: Sport.OTHER, streams, d.boundaries)
+    }
+
     fun build(d: ActivityDetail, hrZones: List<Int>? = null): DetailContent {
         val sport = d.sport ?: Sport.OTHER
         val streams = d.streams?.takeIf { d.detailsAvailable && it.size >= 2 }
-        val steps = d.plannedSteps?.takeIf { it.isNotEmpty() }
-        val analysis = if (steps != null && streams != null) PlanVsActual.analyze(steps, sport, streams, d.boundaries) else null
+        val analysis = analyze(d)
         val shading = analysis?.steps?.mapNotNull { s -> s.actual?.let { Shade(it.startSec.toFloat(), it.endSec.toFloat(), s.kind) } }.orEmpty()
         return DetailContent(
             detail = d,

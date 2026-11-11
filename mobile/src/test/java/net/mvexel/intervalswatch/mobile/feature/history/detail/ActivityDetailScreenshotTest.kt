@@ -9,7 +9,7 @@ import app.cash.paparazzi.Paparazzi
 import net.mvexel.intervalswatch.mobile.app.MainTabsScaffold
 import net.mvexel.intervalswatch.mobile.app.Tab
 import net.mvexel.intervalswatch.mobile.data.activity.ActivityDetail
-import net.mvexel.intervalswatch.mobile.ui.RunbumTheme
+import net.mvexel.intervalswatch.mobile.ui.RondeTheme
 import org.junit.Rule
 import org.junit.Test
 
@@ -32,7 +32,7 @@ class ActivityDetailScreenshotTest {
     private fun frame(dark: Boolean, content: @Composable () -> Unit) =
         // Inspection mode swaps MapLibre for the Canvas route sketch.
         CompositionLocalProvider(LocalInspectionMode provides true) {
-            RunbumTheme(dark = dark) { MainTabsScaffold(selected = Tab.HISTORY, onSelect = {}, content = content) }
+            RondeTheme(dark = dark) { MainTabsScaffold(selected = Tab.HISTORY, onSelect = {}, content = content) }
         }
 
     private val run get() = DetailFixtures.intervalRun()
@@ -49,4 +49,12 @@ class ActivityDetailScreenshotTest {
     @Test fun detailUnstructuredMap() = page(DetailFixtures.unstructuredRun(), item = 5)
     @Test fun detailRide() = page(DetailFixtures.ride(), dark = true)
     @Test fun detailRefreshFailed() = page(DetailFixtures.unstructuredRun(), error = "No connection.")
+    @Test fun detailStravaStub() = page(DetailFixtures.stravaStub())
+    @Test fun detailStravaStubDark() = page(DetailFixtures.stravaStub(), dark = true)
+    @Test fun detailLoading() = state(ActivityDetailUiState(loading = true))
+    @Test fun detailLoadingDark() = state(ActivityDetailUiState(loading = true), dark = true)
+    @Test fun detailFailed() = state(ActivityDetailUiState(loading = false, error = "No connection to intervals.icu"))
+
+    private fun state(st: ActivityDetailUiState, dark: Boolean = false) =
+        paparazzi.snapshot { frame(dark) { ActivityDetailScreen(st, onBack = {}) } }
 }

@@ -31,11 +31,11 @@ import kotlinx.coroutines.flow.StateFlow
 import net.mvexel.intervalswatch.mobile.PendingLogin
 import net.mvexel.intervalswatch.mobile.data.session.Session
 import net.mvexel.intervalswatch.mobile.data.session.SessionState
+import net.mvexel.intervalswatch.mobile.feature.history.CachedRunResults
 import net.mvexel.intervalswatch.mobile.feature.history.HistoryRoute
 import net.mvexel.intervalswatch.mobile.feature.history.HistoryViewModel
 import net.mvexel.intervalswatch.mobile.feature.history.detail.ActivityDetailRoute
 import net.mvexel.intervalswatch.mobile.feature.history.detail.ActivityDetailViewModel
-import net.mvexel.intervalswatch.mobile.feature.history.detail.RepositoryDetailLoader
 import net.mvexel.intervalswatch.mobile.feature.login.LoginRoute
 import net.mvexel.intervalswatch.mobile.feature.login.LoginViewModel
 import net.mvexel.intervalswatch.mobile.feature.plan.PlanRoute
@@ -90,7 +90,10 @@ object Routes {
     const val ARG_ID = "id"
     const val PLANNED_WORKOUT = "plan/workout/{$ARG_ID}"
     const val ACTIVITY = "history/activity/{$ARG_ID}"
+    /** Watch screens, reached from the Watch tab. */
     const val WATCH_SCREENS = "watch/screens"
+    /** The same page reached from Settings: its own route, so the Settings tab stays selected. */
+    const val SETTINGS_WATCH_SCREENS = "settings/watch-screens"
 
     fun plannedWorkout(eventId: Long) = "plan/workout/$eventId"
     fun activity(id: String) = "history/activity/" + android.net.Uri.encode(id)
@@ -124,7 +127,8 @@ fun RondeApp(
 private fun SignedIn(container: AppContainer, recordings: RecordingsViewModel, actions: RecordingActions, onLogin: () -> Unit) {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
-    MainTabsScaffold(selected = Routes.tabOf(entry?.destination?.route) ?: Tab.PLAN, onSelect = { nav.navigateToTab(it) }) {
+    val selected = Routes.tabOf(entry?.destination?.route) ?: Tab.PLAN
+    MainTabsScaffold(selected = selected, onSelect = { nav.navigateToTab(it, reselect = it == selected) }) {
         NavHost(nav, startDestination = Routes.PLAN) {
             composable(Routes.PLAN) {
                 PlanRoute(viewModel { PlanViewModel(container.session, container.prefsDao) }) { nav.navigate(Routes.plannedWorkout(it)) }
@@ -134,30 +138,38 @@ private fun SignedIn(container: AppContainer, recordings: RecordingsViewModel, a
                 PlannedWorkoutDetailRoute(viewModel { PlannedWorkoutDetailViewModel(id, container.session, container.prefsDao) }) { nav.popBackStack() }
             }
             composable(Routes.HISTORY) {
-                HistoryRoute(viewModel { HistoryViewModel(container.activityRepository) }) { nav.navigate(Routes.activity(it)) }
+                HistoryRoute(viewModel { HistoryViewModel(container.activityRepository, CachedRunResults(container.database)) }) { nav.navigate(Routes.activity(it)) }
             }
             composable(Routes.ACTIVITY, arguments = listOf(navArgument(Routes.ARG_ID) { type = NavType.StringType })) { e ->
                 val id = e.arguments!!.getString(Routes.ARG_ID)!!
-                // TODO(detail-loader): use container.activityDetailLoader once the sync work adds it to AppContainer.
-                ActivityDetailRoute(viewModel { ActivityDetailViewModel(RepositoryDetailLoader(container.activityRepository), id) }) { nav.popBackStack() }
+                ActivityDetailRoute(viewModel { ActivityDetailViewModel(container.activityDetailLoader, id) }) { nav.popBackStack() }
             }
             composable(Routes.WATCH) {
                 WatchRoute(viewModel { WatchViewModel(container.session) }, recordings, actions) { nav.navigate(Routes.WATCH_SCREENS) }
             }
-            composable(Routes.WATCH_SCREENS) {
-                WatchScreensRoute(viewModel { WatchScreensViewModel(container.screenSettings, container.buzzer, container.session) }) { nav.popBackStack() }
+            listOf(Routes.WATCH_SCREENS, Routes.SETTINGS_WATCH_SCREENS).forEach { route ->
+                composable(route) {
+                    WatchScreensRoute(viewModel { WatchScreensViewModel(container.screenSettings, container.buzzer, container.session) }) { nav.popBackStack() }
+                }
             }
             composable(Routes.SETTINGS) {
-                SettingsRoute(viewModel { SettingsViewModel(container.session) }, onLogin = onLogin, onWatchScreens = { nav.navigate(Routes.WATCH_SCREENS) })
+                SettingsRoute(viewModel { SettingsViewModel(container.session) }, onLogin = onLogin, onWatchScreens = { nav.navigate(Routes.SETTINGS_WATCH_SCREENS) })
             }
         }
     }
 }
 
-private fun NavHostController.navigateToTab(tab: Tab) = navigate(tab.route) {
-    popUpTo(graph.findStartDestination().id) { saveState = true }
-    launchSingleTop = true
-    restoreState = true
+/**
+ * Switches tab, keeping each tab's own stack. Tapping the tab that is already selected ([reselect]) goes back to
+ * its root page instead, so a page deeper in the tab (an activity, Watch screens) is never a dead end.
+ */
+private fun NavHostController.navigateToTab(tab: Tab, reselect: Boolean) {
+    if (reselect && popBackStack(tab.route, inclusive = false)) return
+    navigate(tab.route) {
+        popUpTo(graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
 }
 
 /**

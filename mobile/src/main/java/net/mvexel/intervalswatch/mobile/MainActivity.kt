@@ -20,7 +20,7 @@ import net.mvexel.intervalswatch.mobile.app.AppViewModel
 import net.mvexel.intervalswatch.mobile.app.RondeApp
 import net.mvexel.intervalswatch.mobile.feature.watch.RecordingActions
 import net.mvexel.intervalswatch.mobile.feature.watch.RecordingsViewModel
-import net.mvexel.intervalswatch.mobile.ui.RunbumTheme
+import net.mvexel.intervalswatch.mobile.ui.RondeTheme
 
 /** CreateDocument with the MIME type chosen per call (the stock contract fixes it at construction). */
 private class CreateExport : ActivityResultContracts.CreateDocument("*/*") {
@@ -121,7 +121,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) appVm.handleRedirect(intent?.dataString)
         val actions = RecordingActions(onShare = ::share, onSave = ::save)
         setContent {
-            RunbumTheme {
+            RondeTheme {
                 RondeApp(container, appVm, recordingsVm, actions, onLogin = ::login)
             }
         }

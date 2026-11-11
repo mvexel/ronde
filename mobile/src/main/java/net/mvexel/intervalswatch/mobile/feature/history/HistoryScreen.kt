@@ -12,10 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -31,6 +34,7 @@ import net.mvexel.intervalswatch.mobile.dayTimeLabel
 import net.mvexel.intervalswatch.mobile.ui.EmptyState
 import net.mvexel.intervalswatch.mobile.ui.EmptyText
 import net.mvexel.intervalswatch.mobile.ui.RingDisc
+import net.mvexel.intervalswatch.mobile.ui.RondeBadge
 import net.mvexel.intervalswatch.mobile.ui.RondeFilterChip
 import net.mvexel.intervalswatch.mobile.ui.RondeIcons
 import net.mvexel.intervalswatch.mobile.ui.RowCard
@@ -39,7 +43,6 @@ import net.mvexel.intervalswatch.mobile.ui.RondeType
 import net.mvexel.intervalswatch.mobile.ui.ScreenHeader
 import net.mvexel.intervalswatch.mobile.ui.SectionHeader
 import net.mvexel.intervalswatch.mobile.ui.SportDisc
-import net.mvexel.intervalswatch.mobile.ui.roundsInRange
 import net.mvexel.intervalswatch.shared.Format
 import net.mvexel.intervalswatch.shared.PaceUnit
 import java.time.DayOfWeek
@@ -52,7 +55,9 @@ import java.util.Locale
 @Composable
 fun HistoryRoute(vm: HistoryViewModel, onOpen: (String) -> Unit) {
     val st by vm.state.collectAsStateWithLifecycle()
-    HistoryScreen(st, onOpen)
+    // Back from an activity: its detail may be cached now, so its ring can show the result.
+    LaunchedEffect(Unit) { vm.recheckResults() }
+    HistoryScreen(st, onOpen, onRefresh = vm::refresh)
 }
 
 enum class HistoryFilter(val label: String) {
@@ -107,6 +112,19 @@ internal fun weekTotals(list: List<ActivityEntity>): String {
 }
 
 /**
+ * The small grey label after a non-Ronde activity's name: the recording device ("Garmin Forerunner 265", "Zwift"),
+ * or "Garmin" for Garmin Connect uploads without one. intervals.icu's API terms require Garmin attribution
+ * wherever Garmin data is shown; Ronde rows carry the Ronde chip instead.
+ */
+internal fun deviceLabel(a: ActivityEntity): String? {
+    if (a.isRonde) return null
+    return a.deviceName?.takeIf { it.isNotBlank() } ?: "Garmin".takeIf { a.isGarmin }
+}
+
+/** Strava stubs: intervals.icu may not pass Strava data on, so only the date and name are known. */
+internal const val STRAVA_STUB_LINE = "Strava activity · details not available"
+
+/**
  * Stat line pieces: distance, moving time, then pace on foot or, on rides, power when recorded else speed, then
  * heart rate. Four pieces at most so the line fits a 412 dp phone.
  */
@@ -124,15 +142,31 @@ internal fun statLine(a: ActivityEntity): List<String> {
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
     st: HistoryUiState,
     onOpen: (String) -> Unit = {},
     initialFilter: HistoryFilter = HistoryFilter.ALL,
     today: LocalDate = LocalDate.now(),
+    onRefresh: () -> Unit = {},
 ) {
     var filter by rememberSaveable { mutableStateOf(initialFilter) }
     val shown = st.rows.filter { filter.matches(it.activity) }
+    PullToRefreshBox(isRefreshing = st.refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
+        HistoryList(st, shown, filter, { filter = it }, today, onOpen)
+    }
+}
+
+@Composable
+private fun HistoryList(
+    st: HistoryUiState,
+    shown: List<HistoryRow>,
+    filter: HistoryFilter,
+    onFilter: (HistoryFilter) -> Unit,
+    today: LocalDate,
+    onOpen: (String) -> Unit,
+) {
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(bottom = 16.dp),
@@ -145,7 +179,7 @@ fun HistoryScreen(
         }
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                HistoryFilter.entries.forEach { f -> RondeFilterChip(f.label, f == filter) { filter = f } }
+                HistoryFilter.entries.forEach { f -> RondeFilterChip(f.label, f == filter) { onFilter(f) } }
             }
         }
         if (!st.loading && shown.isEmpty()) {
@@ -165,23 +199,26 @@ private fun ActivityRow(r: HistoryRow, today: LocalDate, onOpen: (String) -> Uni
     val cs = MaterialTheme.colorScheme
     RowCard(onClick = { onOpen(a.id) }) {
         when {
-            r.result != null -> ResultRing(r.result.steps, r.result.verdicts)
+            r.result != null -> ResultRing(r.result.steps, r.result.verdicts, reached = r.result.reached)
             a.isRonde -> RingDisc(emptyList())
             else -> SportDisc(sportIcon(a.type))
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(a.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (a.isRonde) net.mvexel.intervalswatch.mobile.ui.RondeBadge()
+                if (a.isRonde) RondeBadge()
+                deviceLabel(a)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = cs.outline, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
             Text(dayTimeLabel(a.startLocal, today), style = MaterialTheme.typography.bodySmall, color = cs.outline)
             val stats = statLine(a)
-            if (stats.isNotEmpty()) {
+            if (!a.detailsAvailable) {
+                Text(STRAVA_STUB_LINE, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+            } else if (stats.isNotEmpty()) {
                 FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     stats.forEachIndexed { i, s -> Text(s, style = RondeType.stat, color = if (i == 0) cs.onSurface else cs.onSurfaceVariant, maxLines = 1) }
                 }
             }
-            r.result?.let { roundsInRange(it.steps, it.verdicts) }?.let { (inRange, of) ->
+            r.result?.rounds?.let { (inRange, of) ->
                 Text("$inRange of $of rounds in range", style = MaterialTheme.typography.bodySmall, color = cs.outline)
             }
         }
@@ -195,10 +232,6 @@ private fun sportIcon(type: String): ImageVector = when (activityKind(type)) {
     Kind.WALK -> RondeIcons.Walk
     Kind.OTHER -> RondeIcons.History
 }
-
-/** The Ronde chip; kept here for the Activity detail screen, which calls it unqualified. */
-@Composable
-fun RondeBadge() = net.mvexel.intervalswatch.mobile.ui.RondeBadge()
 
 /** "Today · 07:00 · Run · 10.0 km · 52:10" (moving time). */
 internal fun activityMeta(a: ActivityEntity, today: LocalDate = LocalDate.now()): String = listOfNotNull(
