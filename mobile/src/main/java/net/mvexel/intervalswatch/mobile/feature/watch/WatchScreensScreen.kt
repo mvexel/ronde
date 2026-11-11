@@ -44,6 +44,8 @@ import net.mvexel.intervalswatch.mobile.ui.BackHeader
 import net.mvexel.intervalswatch.mobile.ui.RondeSwitch
 import net.mvexel.intervalswatch.mobile.ui.SectionHeader
 import net.mvexel.intervalswatch.shared.BigNumber
+import net.mvexel.intervalswatch.shared.ColourBand
+import net.mvexel.intervalswatch.shared.CueRow
 import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.PACE_WINDOWS
 import net.mvexel.intervalswatch.shared.withPaceWindow
@@ -113,6 +115,14 @@ internal fun WatchScreensScreen(
             label = "Buzz strength",
         ) { v -> onEdit { it.copy(buzzStrength = v) } }
         OutlinedButton(onClick = onTestBuzz, enabled = watchConnected) { Text("Test buzzes on the watch") }
+        Segmented(
+            listOf("Number" to CueRow.NUMBER, "Words" to CueRow.WORDS), settings.cueRow,
+            label = "Cue row (paced runs)",
+        ) { v -> onEdit { it.copy(cueRow = v) } }
+        Segmented(
+            listOf("Off" to ColourBand.OFF, "On" to ColourBand.ON), settings.colourBand,
+            label = "Colour band when off pace",
+        ) { v -> onEdit { it.copy(colourBand = v) } }
         Segmented(
             listOf("intervals.icu" to UnitsSetting.FROM_INTERVALS, "km" to UnitsSetting.KM, "mi" to UnitsSetting.MI),
             settings.units, label = "Units",
