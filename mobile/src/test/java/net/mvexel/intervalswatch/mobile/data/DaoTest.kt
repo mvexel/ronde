@@ -2,8 +2,14 @@ package net.mvexel.intervalswatch.mobile.data
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import net.mvexel.intervalswatch.mobile.data.db.PlannedListEntity
+import net.mvexel.intervalswatch.mobile.data.db.PlannedWorkoutPrefsEntity
+import net.mvexel.intervalswatch.mobile.data.db.decode
 import net.mvexel.intervalswatch.mobile.data.activity.RoomActivityRepository
 import net.mvexel.intervalswatch.mobile.data.db.ActivityEntity
 import net.mvexel.intervalswatch.mobile.data.db.ActivityStreams
@@ -82,5 +88,54 @@ class DaoTest {
         assertTrue(dao.hiddenIds().isEmpty())
         assertEquals(3, dao.observeAll().first().size)
         assertEquals(false, dao.get(11)!!.pinned)
+    }
+
+    @Test fun pinAndHideKeepEachOther() = runBlocking {
+        val dao = db.plannedWorkoutPrefs()
+        dao.setHidden(5, true)
+        dao.setPinned(5, true)
+        assertEquals(PlannedWorkoutPrefsEntity(5, pinned = true, hidden = true, sortOrder = 1), dao.get(5))
+        dao.setPinned(6, true)
+        dao.setHidden(6, true)
+        dao.setHidden(5, false)
+        assertEquals(PlannedWorkoutPrefsEntity(5, pinned = true, hidden = false, sortOrder = 1), dao.get(5))
+        assertEquals(PlannedWorkoutPrefsEntity(6, pinned = true, hidden = true, sortOrder = 2), dao.get(6))
+        dao.setPinned(5, false)
+        assertEquals(PlannedWorkoutPrefsEntity(5), dao.get(5))
+    }
+
+    /** Finding 4: a pin and a hide of the same workout at the same time must both stick (no read-modify-write). */
+    @Test fun concurrentPinAndHideLoseNothing() = runBlocking {
+        val dao = db.plannedWorkoutPrefs()
+        val ids = (1L..150L).toList()
+        coroutineScope {
+            ids.forEach { id ->
+                launch(Dispatchers.IO) { dao.setPinned(id, true) }
+                launch(Dispatchers.IO) { dao.setHidden(id, true) }
+            }
+        }
+        val rows = dao.observeAll().first().associateBy { it.eventId }
+        ids.forEach { id ->
+            val r = rows[id]!!
+            assertTrue("pin of $id lost", r.pinned)
+            assertTrue("hide of $id lost", r.hidden)
+        }
+        assertEquals((1..150).toSet(), rows.values.map { it.sortOrder }.toSet()) // the pin order stays unique
+    }
+
+    @Test fun movingStreamRoundTrips() = runBlocking {
+        db.activities().upsertAll(listOf(activity("i1", "2026-11-01T07:00:00")))
+        db.streams().upsert(ActivityStreams("i1", time = doubleArrayOf(0.0, 1.0, 2.0), moving = booleanArrayOf(true, false, true)).encode())
+        assertEquals(listOf(true, false, true), db.streams().get("i1")!!.decode().moving!!.toList())
+    }
+
+    @Test fun plannedListIsOneRow() = runBlocking {
+        val dao = db.plannedList()
+        assertNull(dao.get())
+        dao.put(PlannedListEntity(json = "a", fetchedAt = 1))
+        dao.put(PlannedListEntity(json = "b", fetchedAt = 2))
+        assertEquals(PlannedListEntity(json = "b", fetchedAt = 2), dao.observe().first())
+        dao.clear()
+        assertNull(dao.get())
     }
 }

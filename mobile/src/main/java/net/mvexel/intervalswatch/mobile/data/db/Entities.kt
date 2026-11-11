@@ -78,6 +78,8 @@ class ActivityStreamsEntity(
     val latlng: ByteArray? = null,
     /** rpm, or what intervals.icu reports for runs. */
     val cadence: ByteArray? = null,
+    /** One byte per sample, 1 = moving, 0 = stopped ([MovingCodec]); null = not known. */
+    val moving: ByteArray? = null,
 )
 
 /** Decoded view of [ActivityStreamsEntity]. */
@@ -90,6 +92,8 @@ class ActivityStreams(
     val distance: DoubleArray? = null,
     val latlng: DoubleArray? = null,
     val cadence: DoubleArray? = null,
+    /** False where the athlete was stopped: intervals.icu's `moving` stream, or the watch's pauses for a kept FIT. */
+    val moving: BooleanArray? = null,
 ) {
     val samples: Int get() = time?.size ?: 0
     val hasMap: Boolean get() = (latlng?.size ?: 0) >= 2
@@ -99,14 +103,14 @@ fun ActivityStreamsEntity.decode() = ActivityStreams(
     activityId,
     time?.let(StreamCodec::decode), velocity?.let(StreamCodec::decode), heartrate?.let(StreamCodec::decode),
     watts?.let(StreamCodec::decode), distance?.let(StreamCodec::decode), latlng?.let(StreamCodec::decode),
-    cadence?.let(StreamCodec::decode),
+    cadence?.let(StreamCodec::decode), moving?.let(MovingCodec::decode),
 )
 
 fun ActivityStreams.encode() = ActivityStreamsEntity(
     activityId,
     time?.let(StreamCodec::encode), velocity?.let(StreamCodec::encode), heartrate?.let(StreamCodec::encode),
     watts?.let(StreamCodec::encode), distance?.let(StreamCodec::encode), latlng?.let(StreamCodec::encode),
-    cadence?.let(StreamCodec::encode),
+    cadence?.let(StreamCodec::encode), moving?.let(MovingCodec::encode),
 )
 
 /**
@@ -157,3 +161,21 @@ data class PlannedWorkoutPrefsEntity(
     /** Order among pinned workouts, ascending. */
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
 )
+
+/**
+ * The last planned-workout list fetched from intervals.icu (a single row, [ID]), written by every sync: the
+ * foreground one and the background worker. Hide/unhide re-sends from here and the Plan tab reads it, so neither
+ * depends on which process or screen did the last fetch. [json] is a shared `WorkoutBundle` (`Sync.encode`).
+ * A cache: cleared at logout.
+ */
+@Entity(tableName = "planned_list")
+data class PlannedListEntity(
+    @PrimaryKey val id: Int = ID,
+    val json: String,
+    /** Epoch millis of the fetch. */
+    @ColumnInfo(name = "fetched_at") val fetchedAt: Long,
+) {
+    companion object {
+        const val ID = 0
+    }
+}

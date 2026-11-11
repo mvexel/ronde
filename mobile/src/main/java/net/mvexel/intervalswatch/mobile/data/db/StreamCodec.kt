@@ -17,3 +17,10 @@ object StreamCodec {
         return DoubleArray(bytes.size / 8) { buf.getDouble() }
     }
 }
+
+/** BooleanArray <-> one byte per sample (1 = true), for the `moving` stream. */
+object MovingCodec {
+    fun encode(values: BooleanArray): ByteArray = ByteArray(values.size) { if (values[it]) 1 else 0 }
+
+    fun decode(bytes: ByteArray): BooleanArray = BooleanArray(bytes.size) { bytes[it] != 0.toByte() }
+}

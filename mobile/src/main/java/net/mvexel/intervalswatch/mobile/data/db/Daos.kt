@@ -89,16 +89,61 @@ interface PlannedWorkoutPrefsDao {
 
     @Upsert
     suspend fun upsert(prefs: PlannedWorkoutPrefsEntity)
+
+    /** Adds a default row for [eventId] unless one exists. */
+    @Query("INSERT OR IGNORE INTO planned_workout_prefs (event_id, pinned, hidden, sort_order) VALUES (:eventId, 0, 0, 0)")
+    suspend fun insertDefault(eventId: Long)
+
+    /** Sets only `hidden`, so a concurrent pin is not overwritten. */
+    @Query("UPDATE planned_workout_prefs SET hidden = :hidden WHERE event_id = :eventId")
+    suspend fun updateHidden(eventId: Long, hidden: Boolean)
+
+    /** Pins at the end of the pinned group in one statement (the max is read and written atomically). */
+    @Query(
+        "UPDATE planned_workout_prefs SET pinned = 1, " +
+            "sort_order = (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM planned_workout_prefs WHERE pinned = 1) " +
+            "WHERE event_id = :eventId",
+    )
+    suspend fun updatePinnedLast(eventId: Long)
+
+    @Query("UPDATE planned_workout_prefs SET pinned = 0, sort_order = 0 WHERE event_id = :eventId")
+    suspend fun updateUnpinned(eventId: Long)
 }
 
-/** Read-modify-write of one workout's prefs; a missing row starts from the defaults. */
+/**
+ * Read-modify-write of one workout's prefs; a missing row starts from the defaults. Not atomic: two concurrent
+ * edits of the same row can lose one. Use [setPinned] and [setHidden], which change only their own columns.
+ */
+@Deprecated("Not atomic; use setPinned/setHidden")
 suspend fun PlannedWorkoutPrefsDao.edit(eventId: Long, change: (PlannedWorkoutPrefsEntity) -> PlannedWorkoutPrefsEntity) =
     upsert(change(get(eventId) ?: PlannedWorkoutPrefsEntity(eventId)))
 
-/** Pins (at the end of the pinned group) or unpins one workout. */
+/**
+ * Pins (at the end of the pinned group) or unpins one workout. Insert-or-ignore, then a targeted UPDATE: each
+ * statement is atomic and touches only the pin columns, so a concurrent hide of the same workout is kept.
+ */
 suspend fun PlannedWorkoutPrefsDao.setPinned(eventId: Long, pinned: Boolean) {
-    val order = if (pinned) maxPinnedOrder() + 1 else 0
-    edit(eventId) { it.copy(pinned = pinned, sortOrder = order) }
+    insertDefault(eventId)
+    if (pinned) updatePinnedLast(eventId) else updateUnpinned(eventId)
 }
 
-suspend fun PlannedWorkoutPrefsDao.setHidden(eventId: Long, hidden: Boolean) = edit(eventId) { it.copy(hidden = hidden) }
+/** Hides or shows one workout; touches only `hidden` (see [setPinned]). */
+suspend fun PlannedWorkoutPrefsDao.setHidden(eventId: Long, hidden: Boolean) {
+    insertDefault(eventId)
+    updateHidden(eventId, hidden)
+}
+
+@Dao
+interface PlannedListDao {
+    @Query("SELECT * FROM planned_list WHERE id = 0")
+    fun observe(): Flow<PlannedListEntity?>
+
+    @Query("SELECT * FROM planned_list WHERE id = 0")
+    suspend fun get(): PlannedListEntity?
+
+    @Upsert
+    suspend fun put(list: PlannedListEntity)
+
+    @Query("DELETE FROM planned_list")
+    suspend fun clear()
+}

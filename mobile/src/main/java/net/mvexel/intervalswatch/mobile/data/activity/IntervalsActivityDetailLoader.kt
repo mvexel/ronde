@@ -54,6 +54,9 @@ class RecordingLibraryFitSource(context: Context) : LocalFitSource {
  *   samples, pauses and laps: only the planned workout is fetched (1 call, when paired).
  * - Otherwise: the activity with intervals (1), its streams (1), the route from /map only when the streams had no
  *   usable latlng (0-1), and the paired planned workout (0-1).
+ * - A failed planned-workout call does not fail the load: activity and streams are cached without planned steps,
+ *   and the next load (even of fresh cache) tries that one call again.
+ * - Streams include intervals.icu's `moving` flags when it has them; a kept FIT gets them from its pauses.
  * - Strava stubs have no details; they are served from the History row with [ActivityDetail.detailsAvailable] false.
  *
  * Emissions: cached detail first as [DetailLoad.Ready] (else [DetailLoad.Loading]), then fresh [DetailLoad.Ready].
@@ -79,7 +82,18 @@ class IntervalsActivityDetailLoader(
         val cachedRow = detailDao.get(id)
         val cached = if (entity != null && cachedRow != null) buildDetail(entity, cachedRow, streamsDao.get(id)) else null
         if (cached != null) emit(DetailLoad.Ready(cached)) else emit(DetailLoad.Loading)
-        if (cachedRow != null && entity != null && isFresh(entity, cachedRow)) return@flow
+        if (cachedRow != null && entity != null && isFresh(entity, cachedRow)) {
+            // Fresh, but the planned workout failed last time: try that one call again.
+            if (cachedRow.plannedEventId != null && cachedRow.plannedSteps == null) {
+                val steps = planned(cachedRow.plannedEventId)
+                if (steps != null) {
+                    val row = cachedRow.copy(plannedSteps = steps)
+                    detailDao.upsert(row)
+                    emit(DetailLoad.Ready(buildDetail(entity, row, streamsDao.get(id))))
+                }
+            }
+            return@flow
+        }
         try {
             emit(DetailLoad.Ready(fetch(id, entity)))
         } catch (e: CancellationException) {
@@ -111,7 +125,7 @@ class IntervalsActivityDetailLoader(
             boundaries = ActivityDetailCodec.encodeSpans(ActivityStreams.stepBoundaries(rec)),
             pauses = ActivityDetailCodec.encodeSpans(rec.pauses.map { net.mvexel.intervalswatch.shared.TimeSpan(it.startSec, it.endSec) }),
             plannedEventId = eventId,
-            plannedSteps = ActivityDetailCodec.encodeSteps(planned),
+            plannedSteps = planned,
             fetchedAt = clock.millis(),
         )
         streamsDao.upsert(streams)
@@ -135,7 +149,7 @@ class IntervalsActivityDetailLoader(
         val available = a.streamTypes
         var types = if (available == null) WANTED_STREAMS else WANTED_STREAMS.filter { it in available }
         if ("velocity_smooth" in types) types = types - "velocity"
-        val streams = if (types.any { it != "time" }) remote.streams(id, (listOf("time") + types).distinct()) else emptyList()
+        val streams = if (types.any { it != "time" }) remote.streams(id, (listOf("time") + types + MOVING_STREAM).distinct()) else emptyList()
         val hasLatLng = streams.any { it.type == "latlng" && it.data2 != null }
         val route = if (!hasLatLng && available?.contains("latlng") == true) optional { remote.route(id) } else null
         val eventId = a.pairedEventId ?: known?.pairedEventId
@@ -150,7 +164,7 @@ class IntervalsActivityDetailLoader(
             boundaries = ActivityDetailCodec.encodeSpans(intervalsToSpans(a.intervals, time)),
             pauses = null,
             plannedEventId = eventId,
-            plannedSteps = ActivityDetailCodec.encodeSteps(planned),
+            plannedSteps = planned,
             fetchedAt = now,
         )
         streamsDao.upsert(streamsRow)
@@ -158,12 +172,19 @@ class IntervalsActivityDetailLoader(
         return buildDetail(entity, row, streamsRow)
     }
 
-    /** Planned steps of [eventId]; null when unpaired, gone, or signed out. Other errors propagate (nothing is cached). */
-    private suspend fun planned(eventId: Long?): List<WorkoutStep>? {
+    /**
+     * The [ActivityDetailEntity.plannedSteps] column for [eventId]: the steps as JSON, "[]" when the event is gone,
+     * and null when unpaired or when the fetch failed. Never throws (but for cancellation): a failed planned workout
+     * must not cost the activity and its streams; a null column with a [ActivityDetailEntity.plannedEventId] is
+     * tried again at the next load.
+     */
+    private suspend fun planned(eventId: Long?): String? {
         if (eventId == null) return null
         return try {
-            remote.planned(eventId)?.steps
-        } catch (_: NotSignedInException) {
+            ActivityDetailCodec.encodeSteps(remote.planned(eventId)?.steps ?: emptyList<WorkoutStep>())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
             null
         }
     }

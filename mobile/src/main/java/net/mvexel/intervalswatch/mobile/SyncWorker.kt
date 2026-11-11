@@ -9,6 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import net.mvexel.intervalswatch.mobile.app.AppContainer
 import java.util.concurrent.TimeUnit
 
@@ -19,18 +20,39 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val settings = SettingsStore(applicationContext).current()
         if (!settings.configured || !settings.autoSync) return Result.success()
         val container = AppContainer.from(applicationContext)
-        val hidden = container.prefsDao.hiddenIds()
-        val error = runCatching { WatchSync.syncNow(applicationContext, settings, hidden) }.exceptionOrNull()
-        if (error is AuthExpiredException) return Result.failure()
-        // History: a refresh when the last one is old, plus one page of older-history backfill (at most 2 calls).
-        // Best effort: a failure here waits for the next run instead of retrying the watch sync.
-        runCatching { container.activityRepository.backgroundSync() }
-            .onFailure { Log.w("SyncWorker", "history sync: ${it.javaClass.simpleName}") }
-        return if (error == null) Result.success() else Result.retry()
+        return run(
+            plan = { container.planSync.sync(settings) },
+            history = { container.activityRepository.backgroundSync() },
+        )
     }
 
     companion object {
         private const val NAME = "intervals-sync"
+
+        /**
+         * One worker run. Any failure of the plan sync (the fetch, Room, the hidden set, the push) is a retry,
+         * except an expired login, which no retry fixes. History: a refresh when the last one is old, plus one page
+         * of older-history backfill (at most 2 calls); best effort, a failure there waits for the next run.
+         */
+        internal suspend fun run(plan: suspend () -> Unit, history: suspend () -> Unit): Result {
+            val error = try {
+                plan()
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e
+            }
+            if (error is AuthExpiredException) return Result.failure()
+            try {
+                history()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("SyncWorker", "history sync: ${e.javaClass.simpleName}")
+            }
+            return if (error == null) Result.success() else Result.retry()
+        }
 
         fun schedule(context: Context, enabled: Boolean) {
             val wm = WorkManager.getInstance(context)

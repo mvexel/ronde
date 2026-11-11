@@ -22,8 +22,7 @@ import net.mvexel.intervalswatch.mobile.SettingsStore
 import net.mvexel.intervalswatch.mobile.SyncWorker
 import net.mvexel.intervalswatch.mobile.UploadWorker
 import net.mvexel.intervalswatch.mobile.WatchSync
-import net.mvexel.intervalswatch.mobile.data.db.PlannedWorkoutPrefsDao
-import net.mvexel.intervalswatch.mobile.data.plan.visibleForWatch
+import net.mvexel.intervalswatch.mobile.data.plan.PlanSync
 import net.mvexel.intervalswatch.mobile.isLoginRedirect
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -32,8 +31,11 @@ import java.time.format.DateTimeFormatter
 class AppSession(
     context: Context,
     private val scope: CoroutineScope,
-    private val prefsDao: PlannedWorkoutPrefsDao,
-    /** Runs after the credential is cleared, e.g. to wipe cached History (another account may log in next). */
+    private val planSync: PlanSync,
+    /**
+     * Runs after the credential is cleared, e.g. to wipe cached History and the stored plan (another account may
+     * log in next).
+     */
     private val onLogout: suspend () -> Unit = {},
 ) : Session {
     private val app = context.applicationContext
@@ -41,6 +43,21 @@ class AppSession(
     private val pending = PendingLoginStore(app)
     private val _state = MutableStateFlow(SessionState())
     override val state: StateFlow<SessionState> = _state.asStateFlow()
+
+    init {
+        // The Plan tab follows the stored list, so a SyncWorker fetch (or the list from before a restart) shows up.
+        scope.launch {
+            planSync.observe().collect { list ->
+                _state.update {
+                    it.copy(
+                        workouts = list?.let { l -> planSync.upcoming(l.workouts) }.orEmpty(),
+                        workoutsLoaded = true,
+                        workoutsFetchedAt = list?.fetchedAtMillis,
+                    )
+                }
+            }
+        }
+    }
 
     override fun start() {
         scope.launch {
@@ -88,7 +105,7 @@ class AppSession(
             runCatching { onLogout() }
             SyncWorker.schedule(app, false)
             WatchSync.pushLoggedIn(app, false)
-            _state.update { it.copy(settings = Settings(), workouts = emptyList(), busy = false, authExpired = false, status = null) }
+            _state.update { it.copy(settings = Settings(), busy = false, authExpired = false, status = null) }
         }
     }
 
@@ -107,14 +124,11 @@ class AppSession(
         if (!s.configured) return
         scope.launch {
             _state.update { it.copy(busy = true, status = "Syncing…") }
-            runCatching {
-                val hidden = prefsDao.hiddenIds()
-                WatchSync.syncNow(app, s, hidden) to hidden
-            }
-                .onSuccess { (ws, hidden) ->
-                    val sent = visibleForWatch(ws, hidden).size
+            // The list itself reaches [state] through the store (see init), like a background sync's does.
+            runCatching { planSync.sync(s) }
+                .onSuccess { r ->
                     _state.update {
-                        it.copy(busy = false, workouts = ws, status = "Sent $sent workout(s) to the watch", lastSynced = LocalTime.now().format(HH_MM))
+                        it.copy(busy = false, status = "Sent ${r.sent} workout(s) to the watch", lastSynced = LocalTime.now().format(HH_MM))
                     }
                 }
                 .onFailure { e ->
@@ -127,13 +141,11 @@ class AppSession(
     }
 
     override fun pushToWatch() {
-        val st = _state.value
-        // Nothing fetched yet: pushing would wipe the watch's list, and the next sync applies the prefs anyway.
-        if (!st.settings.configured || st.workouts.isEmpty()) return
+        if (!_state.value.settings.configured) return
         scope.launch {
-            val ws = visibleForWatch(st.workouts, prefsDao.hiddenIds())
-            runCatching { WatchSync.push(app, ws) }
-                .onSuccess { _state.update { it.copy(status = "Sent ${ws.size} workout(s) to the watch") } }
+            // From the stored list (the newest fetch, whoever made it); null = nothing fetched yet, nothing sent.
+            runCatching { planSync.pushStored() }
+                .onSuccess { n -> if (n != null) _state.update { it.copy(status = "Sent $n workout(s) to the watch") } }
                 .onFailure { e -> _state.update { it.copy(status = "Failed: ${e.message}") } }
         }
     }

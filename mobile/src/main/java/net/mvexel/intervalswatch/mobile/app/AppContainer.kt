@@ -4,7 +4,10 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import net.mvexel.intervalswatch.mobile.DataLayerWatchLink
 import net.mvexel.intervalswatch.mobile.IntervalsApi
+import net.mvexel.intervalswatch.mobile.data.plan.PlanSync
+import net.mvexel.intervalswatch.mobile.data.plan.PlannedFetcher
 import net.mvexel.intervalswatch.mobile.ScreenSettingsStore
 import net.mvexel.intervalswatch.mobile.SettingsStore
 import net.mvexel.intervalswatch.mobile.data.DataLayerBuzzer
@@ -39,7 +42,19 @@ class AppContainer private constructor(context: Context) {
     val activityDetailLoader: ActivityDetailLoader by lazy {
         IntervalsActivityDetailLoader(database.activities(), database.streams(), database.details(), activitySource, RecordingLibraryFitSource(app))
     }
-    val session: Session by lazy { AppSession(app, scope, prefsDao) { activityRepository.clear() } }
+    /**
+     * The one path for planned workouts to the watch (foreground sync, hide/unhide re-push, SyncWorker). Its mutex
+     * is process-wide, so those never interleave.
+     */
+    val planSync: PlanSync by lazy {
+        PlanSync(PlannedFetcher { IntervalsApi().plannedWorkouts(it) }, DataLayerWatchLink(app), prefsDao, database.plannedList())
+    }
+    val session: Session by lazy {
+        AppSession(app, scope, planSync) {
+            runCatching { activityRepository.clear() }
+            runCatching { planSync.clear() }
+        }
+    }
     val recordings: RecordingsSource by lazy { LibraryRecordingsSource(app) }
     val screenSettings: ScreenSettingsStore by lazy { ScreenSettingsStore(app) }
     val buzzer: WatchBuzzer by lazy { DataLayerBuzzer(app) }

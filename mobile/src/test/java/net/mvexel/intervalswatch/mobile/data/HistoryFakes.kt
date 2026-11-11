@@ -34,6 +34,8 @@ class FakeHistoryRemote(var all: List<IcuActivity> = emptyList()) : ActivityRemo
     val streams = HashMap<String, List<IcuStream>>()
     val routes = HashMap<String, List<Pair<Double, Double>>>()
     val planned = HashMap<Long, Workout>()
+    /** Thrown by [planned] only (after recording the call). */
+    var plannedError: Exception? = null
 
     private fun call(c: String) {
         calls += c
@@ -66,6 +68,7 @@ class FakeHistoryRemote(var all: List<IcuActivity> = emptyList()) : ActivityRemo
 
     override suspend fun planned(eventId: Long): Workout? {
         call("planned $eventId")
+        plannedError?.let { throw it }
         return planned[eventId]
     }
 }
