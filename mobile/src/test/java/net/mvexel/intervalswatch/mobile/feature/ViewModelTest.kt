@@ -16,7 +16,10 @@ import net.mvexel.intervalswatch.mobile.fakes.FakeRecordings
 import net.mvexel.intervalswatch.mobile.fakes.FakeScreenSettings
 import net.mvexel.intervalswatch.mobile.fakes.FakeSession
 import net.mvexel.intervalswatch.mobile.fakes.MainDispatcherRule
+import net.mvexel.intervalswatch.mobile.data.activity.ActivityRepository
 import net.mvexel.intervalswatch.mobile.feature.history.HistoryViewModel
+import net.mvexel.intervalswatch.mobile.feature.history.RunResult
+import net.mvexel.intervalswatch.shared.Verdict
 import net.mvexel.intervalswatch.mobile.feature.login.LoginViewModel
 import net.mvexel.intervalswatch.mobile.feature.plan.PlanViewModel
 import net.mvexel.intervalswatch.mobile.feature.plan.PlannedWorkoutDetailViewModel
@@ -85,8 +88,6 @@ class ViewModelTest {
         assertTrue("pushToWatch" in session.calls)
         assertTrue(dao.rows.value.getValue(first.workout.id).hidden)
 
-        vm.toggleShowHidden()
-        assertTrue(vm.state.value.showHidden)
         vm.toggleHidden(vm.state.value.hidden.single())
         assertTrue(vm.state.value.hidden.isEmpty())
         assertEquals(2, session.calls.count { it == "pushToWatch" })
@@ -126,7 +127,7 @@ class ViewModelTest {
 
     @Test fun historyIsEmptyThenShowsStoredActivitiesNewestFirst() = runTest {
         val repo = InMemoryActivityRepository()
-        val vm = HistoryViewModel(repo)
+        val vm = HistoryViewModel(repo, compute = main.dispatcher)
         assertFalse(vm.state.value.loading)
         assertTrue(vm.state.value.activities.isEmpty())
         assertEquals(1, repo.refreshes)
@@ -135,6 +136,45 @@ class ViewModelTest {
         repo.put(activity("i2", "2026-11-03T07:00:00", ronde = true))
         assertEquals(listOf("i2", "i1"), vm.state.value.activities.map { it.id })
         assertTrue(vm.state.value.activities.first().isRonde)
+    }
+
+    /** Records the force flag of each refresh. */
+    private class ForceRecordingRepo(val inner: InMemoryActivityRepository = InMemoryActivityRepository()) : ActivityRepository by inner {
+        val forces = mutableListOf<Boolean>()
+        override suspend fun refresh(force: Boolean) {
+            forces += force
+        }
+    }
+
+    @Test fun historyOpensWithAThrottledRefreshAndPullForcesOne() {
+        val repo = ForceRecordingRepo()
+        val vm = HistoryViewModel(repo, compute = main.dispatcher)
+        vm.refresh()
+        assertEquals(listOf(false, true), repo.forces)
+        assertFalse(vm.state.value.refreshing)
+    }
+
+    @Test fun historyFillsRondeRingsFromCachedResultsOnly() {
+        val repo = InMemoryActivityRepository()
+        val steps = Samples.run.steps
+        val asked = mutableListOf<String>()
+        val cached = mutableMapOf("i2" to RunResult(steps, steps.map { Verdict.IN }))
+        val vm = HistoryViewModel(repo, { a -> asked += a.id; cached[a.id] }, compute = main.dispatcher)
+        repo.put(activity("i1", "2026-11-01T07:00:00"))
+        repo.put(activity("i2", "2026-11-03T07:00:00", ronde = true))
+        repo.put(activity("i3", "2026-11-04T07:00:00", ronde = true))
+        val rows = vm.state.value.rows.associateBy { it.activity.id }
+        assertNull(rows.getValue("i1").result) // not Ronde: never asked
+        assertFalse("i1" in asked)
+        assertEquals(cached["i2"], rows.getValue("i2").result)
+        assertNull(rows.getValue("i3").result) // detail never opened: plain ring
+
+        // i3's detail gets cached (opened meanwhile); History shown again picks it up, i2 comes from the memo.
+        cached["i3"] = RunResult(steps, steps.map { null })
+        val askedBefore = asked.count { it == "i2" }
+        vm.recheckResults()
+        assertEquals(cached["i3"], vm.state.value.rows.single { it.activity.id == "i3" }.result)
+        assertEquals(askedBefore, asked.count { it == "i2" })
     }
 
     @Test fun watchMirrorsSessionAndSyncs() {

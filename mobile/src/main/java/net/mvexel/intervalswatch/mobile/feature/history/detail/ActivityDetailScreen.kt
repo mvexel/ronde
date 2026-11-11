@@ -49,6 +49,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import net.mvexel.intervalswatch.mobile.ui.ResultRing
+import net.mvexel.intervalswatch.mobile.ui.RondeBadge
+import net.mvexel.intervalswatch.mobile.ui.RondeTheme
+import net.mvexel.intervalswatch.mobile.ui.RondeType
 import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.StepStatus
 
@@ -125,7 +129,7 @@ internal fun DetailCard(content: @Composable ColumnScope.() -> Unit) = Card(
     Modifier.fillMaxWidth(),
     shape = RoundedCornerShape(20.dp),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    border = BorderStroke(1.dp, detailPalette.line),
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     content = content,
 )
 
@@ -133,7 +137,7 @@ internal fun DetailCard(content: @Composable ColumnScope.() -> Unit) = Card(
 
 @Composable
 private fun Slab(content: @Composable ColumnScope.() -> Unit) {
-    val p = detailPalette
+    val p = RondeTheme.colors
     val shape = RoundedCornerShape(24.dp)
     Column(
         Modifier.fillMaxWidth().background(p.slab, shape).let { m -> p.slabEdge?.let { m.border(1.dp, it, shape) } ?: m }.padding(20.dp),
@@ -143,21 +147,25 @@ private fun Slab(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun HeroSlab(c: DetailContent) {
-    val p = detailPalette
+    val p = RondeTheme.colors
     val d = c.detail
     Slab {
-        Text(c.meta, style = MaterialTheme.typography.bodySmall, color = p.slabInk2)
-        Text(d.name, style = DetailTokens.heroTitle, color = Color.White, modifier = Modifier.padding(top = 2.dp))
-        if (c.ring.isNotEmpty()) {
+        Text(c.meta, style = MaterialTheme.typography.bodySmall, color = p.onSlab2)
+        Text(d.name, style = RondeType.detailTitle, color = p.onSlab, modifier = Modifier.padding(top = 2.dp))
+        val a = c.analysis
+        if (a != null && c.ring.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val desc = c.rounds?.let { "Result ring: ${it.text} rounds in range" } ?: "Workout ring"
-                ResultRing(c.ring, desc, size = 164.dp)
+                ResultRing(
+                    a.steps.map { it.step }, a.steps.map { it.verdict }, size = 164.dp,
+                    reached = a.steps.map { it.status != StepStatus.NOT_REACHED }, contentDescription = desc,
+                )
                 Spacer(Modifier.width(16.dp))
                 Column {
                     c.rounds?.let { r ->
-                        Text(r.text, style = DetailTokens.heroVerdict, color = Color.White)
-                        Text("rounds in range", style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold), color = Color.White)
+                        Text(r.text, style = RondeType.hero, color = p.onSlab)
+                        Text("rounds in range", style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold), color = p.onSlab)
                     }
                     Spacer(Modifier.height(10.dp))
                     SourceLine(c)
@@ -173,20 +181,15 @@ private fun HeroSlab(c: DetailContent) {
 /** Ronde chip and/or the recording device. */
 @Composable
 private fun SourceLine(c: DetailContent) {
-    val p = detailPalette
+    val p = RondeTheme.colors
     val device = c.detail.deviceName?.takeIf { it.isNotBlank() }
     if (!c.detail.isRonde && device == null) return
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (c.detail.isRonde) {
-            Text(
-                "Ronde",
-                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold),
-                color = p.work,
-                modifier = Modifier.background(Color(0xFF2B2D31), RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 2.dp),
-            )
+            RondeBadge()
             Spacer(Modifier.width(8.dp))
         }
-        if (device != null) Text(device, style = MaterialTheme.typography.bodySmall, color = p.slabInk2)
+        if (device != null) Text(device, style = MaterialTheme.typography.bodySmall, color = p.onSlab2)
     }
 }
 
@@ -198,7 +201,7 @@ private fun LoadingSlab() {
         Box(Modifier.size(width = 220.dp, height = 26.dp).background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(8.dp)))
         Spacer(Modifier.height(20.dp))
         Box(Modifier.fillMaxWidth().height(120.dp).semantics { contentDescription = "Loading activity" }, contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = detailPalette.work)
+            CircularProgressIndicator(color = RondeTheme.colors.work)
         }
     }
 }
@@ -215,7 +218,7 @@ private fun FailedCard(message: String, onRetry: () -> Unit) = DetailCard {
 @Composable
 private fun RefreshFailedBanner(message: String, onRetry: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().background(detailPalette.surface2, RoundedCornerShape(12.dp)).padding(start = 12.dp),
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)).padding(start = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("Showing the saved copy. $message", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
@@ -250,7 +253,7 @@ private fun HeadlineGrid(cells: List<Headline>) = DetailCard {
                                     }
                                 }
                             },
-                            style = DetailTokens.headline,
+                            style = RondeType.numberL,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
@@ -271,7 +274,7 @@ private val DiscW = 30.dp
 
 @Composable
 private fun StepsTable(rows: List<StepRow>) = DetailCard {
-    val ink3 = detailPalette.ink3
+    val ink3 = RondeTheme.colors.ink3
     Column(Modifier.padding(horizontal = 14.dp, vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
             Text("Steps", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -287,14 +290,14 @@ private fun StepsTable(rows: List<StepRow>) = DetailCard {
             Text("HR", style = head, modifier = Modifier.width(HrW))
             Text("In range", style = head, modifier = Modifier.width(InRangeW))
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(detailPalette.line))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
         rows.forEach { StepRowView(it) }
     }
 }
 
 @Composable
 private fun StepRowView(r: StepRow) {
-    val p = detailPalette
+    val p = RondeTheme.colors
     val ink = MaterialTheme.colorScheme.onSurface
     val ink2 = MaterialTheme.colorScheme.onSurfaceVariant
     val work = r.kind == StepKind.ACTIVE
@@ -313,7 +316,7 @@ private fun StepRowView(r: StepRow) {
             } else {
                 Text(
                     r.avg ?: "—",
-                    style = if (work) DetailTokens.numerals(15.sp).copy(color = ink) else body.copy(color = ink2),
+                    style = if (work) RondeType.numberM.copy(fontSize = 15.sp, lineHeight = 17.sp).copy(color = ink) else body.copy(color = ink2),
                     modifier = Modifier.width(AvgW), maxLines = 1,
                 )
                 Text(r.hr ?: "—", style = body.copy(color = ink2), modifier = Modifier.width(HrW), maxLines = 1)
@@ -321,7 +324,7 @@ private fun StepRowView(r: StepRow) {
             }
         }
         r.correction?.let { c ->
-            val color = if (c.off == Off.OVER) p.fast else p.slow
+            val color = if (c.off == Off.OVER) p.paceFast else p.paceSlow
             Text(
                 buildAnnotatedString {
                     withStyle(SpanStyle(color = color)) { append(c.chevron) }
@@ -338,9 +341,9 @@ private fun StepRowView(r: StepRow) {
 /** Black disc: amber rep number for work, a short dash in the kind colour for the rest. */
 @Composable
 private fun StepDisc(r: StepRow, modifier: Modifier) = Box(modifier, contentAlignment = Alignment.CenterStart) {
-    val p = detailPalette
-    Box(Modifier.size(22.dp).background(Color.Black, CircleShape), contentAlignment = Alignment.Center) {
-        if (r.rep != null) Text(r.rep.toString(), style = DetailTokens.numerals(12.sp), color = p.work)
+    val p = RondeTheme.colors
+    Box(Modifier.size(22.dp).background(RondeTheme.colors.ringDisc, CircleShape), contentAlignment = Alignment.Center) {
+        if (r.rep != null) Text(r.rep.toString(), style = RondeType.ringNumber.copy(fontSize = 12.sp, lineHeight = 13.sp), color = p.work)
         else Box(Modifier.size(width = 10.dp, height = 3.dp).background(p.kind(r.kind), RoundedCornerShape(1.5.dp)))
     }
 }
@@ -353,7 +356,7 @@ private fun InRangeCell(r: StepRow, modifier: Modifier) = Row(modifier, vertical
         Text("—", style = TextStyle(fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
         return@Row
     }
-    Box(Modifier.size(width = 28.dp, height = 5.dp).background(detailPalette.surface2, RoundedCornerShape(3.dp))) {
+    Box(Modifier.size(width = 28.dp, height = 5.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(3.dp))) {
         Box(Modifier.fillMaxWidth(f.coerceIn(0.04f, 1f)).height(5.dp).background(MaterialTheme.colorScheme.onSurface, RoundedCornerShape(3.dp)))
     }
     Spacer(Modifier.width(5.dp))

@@ -33,6 +33,8 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import net.mvexel.intervalswatch.mobile.ui.RondeColors
+import net.mvexel.intervalswatch.mobile.ui.RondeTheme
 import net.mvexel.intervalswatch.shared.StepKind
 
 /**
@@ -46,7 +48,7 @@ internal fun DetailChartCard(chart: ChartData, shading: List<Shade>, hrZones: Li
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(chart.kind.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 val caption = if (chart.kind == ChartKind.HEART_RATE && hrZones != null) "bpm · zones from intervals.icu" else chart.kind.caption
-                Text(caption, style = MaterialTheme.typography.bodySmall, color = detailPalette.ink3)
+                Text(caption, style = MaterialTheme.typography.bodySmall, color = RondeTheme.colors.ink3)
             }
             Spacer(Modifier.height(10.dp))
             ChartCanvas(chart, shading, hrZones.takeIf { chart.kind == ChartKind.HEART_RATE })
@@ -60,7 +62,7 @@ internal fun DetailChartCard(chart: ChartData, shading: List<Shade>, hrZones: Li
 
 @Composable
 private fun ChartCanvas(c: ChartData, shading: List<Shade>, zones: List<Int>?) {
-    val p = detailPalette
+    val p = RondeTheme.colors
     val ink = MaterialTheme.colorScheme.onSurface
     val measurer = rememberTextMeasurer()
     val label = TextStyle(fontSize = 10.5.sp, color = p.ink3, fontFeatureSettings = "tnum")
@@ -77,7 +79,7 @@ private fun ChartCanvas(c: ChartData, shading: List<Shade>, zones: List<Int>?) {
             return if (c.invert) top + (bottom - top) * f else bottom - (bottom - top) * f
         }
         // Ground and step shading.
-        drawRect(p.tintWarmup, Offset(left, top), Size(right - left, bottom - top))
+        drawRect(p.tintWu, Offset(left, top), Size(right - left, bottom - top))
         shading.forEach { s ->
             if (s.kind == StepKind.WARMUP || s.kind == StepKind.COOLDOWN) return@forEach
             drawRect(p.tint(s.kind), Offset(x(s.startSec), top), Size(x(s.endSec) - x(s.startSec), bottom - top))
@@ -103,8 +105,8 @@ private fun ChartCanvas(c: ChartData, shading: List<Shade>, zones: List<Int>?) {
         }
         // The series, then the off-target stretches over it.
         drawSeries(c, ::x, ::y, ink, 1.75.dp.toPx()) { true }
-        drawSeries(c, ::x, ::y, p.fast, 2.5.dp.toPx()) { c.flags[it] > 0 }
-        drawSeries(c, ::x, ::y, p.slow, 2.5.dp.toPx()) { c.flags[it] < 0 }
+        drawSeries(c, ::x, ::y, p.paceFast, 2.5.dp.toPx()) { c.flags[it] > 0 }
+        drawSeries(c, ::x, ::y, p.paceSlow, 2.5.dp.toPx()) { c.flags[it] < 0 }
         // Time axis.
         DetailModel.timeTicks(c.tMax).forEach { (t, text) ->
             val m = measurer.measure(text, label)
@@ -133,7 +135,7 @@ private fun DrawScope.drawSeries(c: ChartData, x: (Float) -> Float, y: (Float) -
 }
 
 private fun DrawScope.drawZones(
-    zones: List<Int>, p: DetailPalette, y: (Float) -> Float, left: Float, right: Float, top: Float, bottom: Float,
+    zones: List<Int>, p: RondeColors, y: (Float) -> Float, left: Float, right: Float, top: Float, bottom: Float,
     measurer: androidx.compose.ui.text.TextMeasurer, label: TextStyle,
 ) {
     val bounds = listOf(Float.NEGATIVE_INFINITY) + zones.map { it.toFloat() } + Float.POSITIVE_INFINITY
@@ -155,20 +157,20 @@ private fun DrawScope.drawZones(
 
 @Composable
 private fun ChartLegend(hasTargets: Boolean, shaded: Boolean, overWord: String, underWord: String) {
-    val p = detailPalette
+    val p = RondeTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (shaded) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Swatch(p.tintWork, "work")
                 Swatch(p.tintEasy, "easy")
-                Swatch(p.tintWarmup, "warm-up / cool-down")
+                Swatch(p.tintWu, "warm-up / cool-down")
                 if (hasTargets) Swatch(p.band, "target")
             }
         }
         if (hasTargets) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                LineKey(p.fast, if (overWord == "fast") "▼ $overWord" else "▲ $overWord")
-                LineKey(p.slow, if (underWord == "slow") "▲ $underWord" else "▼ $underWord")
+                LineKey(p.paceFast, if (overWord == "fast") "▼ $overWord" else "▲ $overWord")
+                LineKey(p.paceSlow, if (underWord == "slow") "▲ $underWord" else "▼ $underWord")
             }
         }
     }

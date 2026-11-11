@@ -56,6 +56,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import net.mvexel.intervalswatch.mobile.data.activity.LatLon
+import net.mvexel.intervalswatch.mobile.ui.RondeCondensed
+import net.mvexel.intervalswatch.mobile.ui.RondeColors
+import net.mvexel.intervalswatch.mobile.ui.RondeTheme
 import net.mvexel.intervalswatch.shared.StepKind
 import okhttp3.OkHttpClient
 import org.maplibre.android.MapLibre
@@ -87,7 +90,7 @@ internal const val MAP_ATTRIBUTION = "OpenFreeMap © OpenMapTiles © OpenStreetM
 @Composable
 internal fun RouteMapCard(route: RouteDrawing, caption: String?) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    val p = detailPalette
+    val p = RondeTheme.colors
     DetailCard {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
@@ -129,7 +132,7 @@ private fun Attribution(modifier: Modifier) = Text(
     MAP_ATTRIBUTION,
     style = TextStyle(fontSize = 9.sp),
     color = MaterialTheme.colorScheme.onSurfaceVariant,
-    modifier = modifier.background(detailPalette.mapLand.copy(alpha = 0.85f), RoundedCornerShape(topStart = 6.dp)).padding(horizontal = 5.dp, vertical = 2.dp),
+    modifier = modifier.background(RondeTheme.colors.mapLand.copy(alpha = 0.85f), RoundedCornerShape(topStart = 6.dp)).padding(horizontal = 5.dp, vertical = 2.dp),
 )
 
 @Composable
@@ -147,7 +150,7 @@ private fun RouteMapView(route: RouteDrawing, interactive: Boolean, modifier: Mo
         RouteSketch(route, modifier.semantics { contentDescription = desc })
         return
     }
-    val p = detailPalette
+    val p = RondeTheme.colors
     val context = LocalContext.current
     val mapView = remember(interactive) { RondeMaps.mapView(context, interactive) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -199,8 +202,8 @@ private object RondeMaps {
         }
     }
 
-    fun show(map: MapLibreMap, route: RouteDrawing, p: DetailPalette, density: Float) {
-        val asset = if (p.dark) "asset://map/ronde_route_dark.json" else "asset://map/ronde_route_light.json"
+    fun show(map: MapLibreMap, route: RouteDrawing, p: RondeColors, density: Float) {
+        val asset = if (p.isDark) "asset://map/ronde_route_dark.json" else "asset://map/ronde_route_light.json"
         map.setStyle(Style.Builder().fromUri(asset)) { style ->
             val lines = route.segments.map { seg ->
                 Feature.fromGeometry(LineString.fromLngLats(seg.points.map { Point.fromLngLat(it.lon, it.lat) }))
@@ -218,7 +221,7 @@ private object RondeMaps {
                 LineLayer("route-line", "route").withProperties(
                     PropertyFactory.lineColor(
                         Expression.match(
-                            Expression.get("kind"), c(if (p.dark) Color.White else Color(0xFF4A4E57)),
+                            Expression.get("kind"), c(p.routeNeutral),
                             Expression.stop(StepKind.ACTIVE.name, c(p.work)),
                             Expression.stop(StepKind.REST.name, c(p.recovery)),
                             Expression.stop(StepKind.WARMUP.name, c(p.warmup)),
@@ -244,7 +247,7 @@ private object RondeMaps {
             style.addLayer(
                 CircleLayer("route-rep-disc", "route-reps").withProperties(
                     PropertyFactory.circleRadius(8.5f), PropertyFactory.circleColor(c(Color.Black)),
-                    PropertyFactory.circleStrokeColor(c(if (p.dark) p.line else Color.Black)), PropertyFactory.circleStrokeWidth(1f),
+                    PropertyFactory.circleStrokeColor(c(p.slabEdge ?: Color.Black)), PropertyFactory.circleStrokeWidth(1f),
                 ),
             )
             style.addLayer(
@@ -264,10 +267,10 @@ private object RondeMaps {
 /** The route on a plain land ground, for previews and screenshot tests (no tiles, no native code). */
 @Composable
 private fun RouteSketch(route: RouteDrawing, modifier: Modifier) {
-    val p = detailPalette
+    val p = RondeTheme.colors
     val measurer = rememberTextMeasurer()
-    val numStyle = TextStyle(fontFamily = DetailTokens.condensed, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = p.work)
-    val other = if (p.dark) Color.White else Color(0xFF4A4E57)
+    val numStyle = TextStyle(fontFamily = RondeCondensed, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = p.work)
+    val other = p.routeNeutral
     Canvas(modifier) {
         // A faint street grid so the thumbnail reads as a map.
         val step = 26.dp.toPx()

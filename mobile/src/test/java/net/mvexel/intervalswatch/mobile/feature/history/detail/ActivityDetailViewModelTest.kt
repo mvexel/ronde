@@ -3,14 +3,10 @@ package net.mvexel.intervalswatch.mobile.feature.history.detail
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.test.runTest
 import net.mvexel.intervalswatch.mobile.data.activity.ActivityDetailLoader
 import net.mvexel.intervalswatch.mobile.data.activity.DetailLoad
-import net.mvexel.intervalswatch.mobile.data.activity.InMemoryActivityRepository
-import net.mvexel.intervalswatch.mobile.data.db.ActivityEntity
-import net.mvexel.intervalswatch.mobile.data.db.ActivityStreams
 import net.mvexel.intervalswatch.mobile.fakes.MainDispatcherRule
-import net.mvexel.intervalswatch.shared.Sport
+import net.mvexel.intervalswatch.mobile.feature.history.runResultOf
 import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.StepStatus
 import net.mvexel.intervalswatch.shared.Verdict
@@ -103,22 +99,18 @@ class ActivityDetailViewModelTest {
         assertSame(first, vm.state.value.content)
     }
 
-    @Test fun repositoryLoaderMapsRoomRows() = runTest {
-        val repo = InMemoryActivityRepository(
-            listOf(ActivityEntity("i9", "Spin", "VirtualRide", "2026-11-01T07:00:00", 20_000.0, 2_400, 2_500, avgHr = 140, fetchedAt = 0)),
-            listOf(ActivityStreams("i9", time = doubleArrayOf(0.0, 1.0, 2.0), heartrate = doubleArrayOf(120.0, 150.0, 149.0), latlng = doubleArrayOf(40.7, -111.9, 40.71, -111.91))),
-        )
-        val vm = vm(RepositoryDetailLoader(repo), "i9")
-        val d = vm.state.value.content!!.detail
-        assertEquals(Sport.RIDE, d.sport)
-        assertEquals(150.0, d.maxHr!!, 0.0)
-        assertEquals(2, d.route!!.size)
-        assertNull(d.plannedSteps)
-        assertEquals(3, d.streams!!.size)
-
-        val missing = vm(RepositoryDetailLoader(repo), "nope").state.value
-        assertEquals("This activity is not on the phone.", missing.error)
-        assertNull(missing.content)
+    @Test fun historyRingMatchesTheDetailHero() {
+        val d = DetailFixtures.intervalRun()
+        val c = DetailModel.build(d)
+        val r = runResultOf(d)!!
+        // History row and Detail hero hollow the same reps and count the same rounds.
+        assertEquals(c.ring.map { it.hollow }, r.missed)
+        assertEquals(c.rounds!!.inRange to c.rounds!!.total, r.rounds)
+        // A plan without samples is the plain plan ring; no plan, no ring.
+        val plain = runResultOf(d.copy(streams = null))!!
+        assertNull(plain.verdicts)
+        assertTrue(plain.missed.none { it })
+        assertNull(runResultOf(d.copy(plannedSteps = null)))
     }
 
     @Test fun designRunRowsAndCorrections() {

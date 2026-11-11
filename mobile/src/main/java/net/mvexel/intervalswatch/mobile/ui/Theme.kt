@@ -91,10 +91,6 @@ fun RondeTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () ->
     }
 }
 
-/** Old name, kept for MainActivity and tests. */
-@Composable
-fun RunbumTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) = RondeTheme(dark, content)
-
 /** Accessors for the non-Material parts of the theme, in the style of `MaterialTheme.colorScheme`. */
 object RondeTheme {
     val colors: RondeColors

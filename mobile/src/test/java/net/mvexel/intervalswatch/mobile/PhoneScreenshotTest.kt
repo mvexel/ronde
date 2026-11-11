@@ -46,7 +46,6 @@ import net.mvexel.intervalswatch.mobile.ui.RondeBadge
 import net.mvexel.intervalswatch.mobile.ui.RondeFilterChip
 import net.mvexel.intervalswatch.mobile.ui.RondeTheme
 import net.mvexel.intervalswatch.mobile.ui.RondeType
-import net.mvexel.intervalswatch.mobile.ui.RunbumTheme
 import net.mvexel.intervalswatch.mobile.ui.Slab
 import net.mvexel.intervalswatch.shared.Samples
 import net.mvexel.intervalswatch.shared.ScreenSettings
@@ -92,14 +91,17 @@ class PhoneScreenshotTest {
             RunResult(Samples.run.steps, verdicts(Samples.run.steps, setOf(1))),
         ),
         HistoryRow(
-            ActivityEntity("i2", "Commute", "Ride", "2026-11-02T07:55:00", 14_200.0, 2_050, 2_200, avgSpeed = 6.9, avgHr = 121, fetchedAt = 0),
+            ActivityEntity("i2", "Commute", "Ride", "2026-11-02T07:55:00", 14_200.0, 2_050, 2_200, avgSpeed = 6.9, avgHr = 121, fetchedAt = 0, deviceName = "Garmin Edge 540", source = "GARMIN_CONNECT"),
         ),
         HistoryRow(
             ActivityEntity("i1", "Easy run", "Run", "2026-10-29T18:30:00", 7_320.0, 2_406, 2_450, avgSpeed = 3.04, avgHr = 139, isRonde = true, fetchedAt = 0),
             RunResult(Samples.run.steps, null),
         ),
         HistoryRow(
-            ActivityEntity("i0", "Morning ride", "VirtualRide", "2026-10-27T09:15:00", 42_100.0, 5_320, 5_400, avgSpeed = 7.9, avgHr = 132, avgPower = 186, fetchedAt = 0),
+            ActivityEntity("i0", "Morning ride", "VirtualRide", "2026-10-27T09:15:00", 42_100.0, 5_320, 5_400, avgSpeed = 7.9, avgHr = 132, avgPower = 186, fetchedAt = 0, deviceName = "Zwift"),
+        ),
+        HistoryRow(
+            ActivityEntity("i-0", "Afternoon Run", "Run", "2026-10-26T16:00:00", fetchedAt = 0, source = "STRAVA", detailsAvailable = false),
         ),
         HistoryRow(
             ActivityEntity("i-1", "Long walk", "Walk", "2026-10-26T10:00:00", 6_100.0, 4_200, 4_300, avgSpeed = 1.45, fetchedAt = 0),
@@ -175,7 +177,7 @@ class PhoneScreenshotTest {
 
     @Test fun planWithHidden() = tab(Tab.PLAN) {
         val (h, v) = Samples.workouts.partition { it.id == Samples.workouts.last().id }
-        PlanScreen(PlanUiState(visible = v.map { PlanItem(it) }, hidden = h.map { PlanItem(it, hidden = true) }, showHidden = true, watches = listOf("Pixel Watch 3")), today = today)
+        PlanScreen(PlanUiState(visible = v.map { PlanItem(it) }, hidden = h.map { PlanItem(it, hidden = true) }, watches = listOf("Pixel Watch 3")), today = today)
     }
 
     @Test fun plannedWorkoutDetail() = tab(Tab.PLAN) {
@@ -216,9 +218,9 @@ class PhoneScreenshotTest {
 
     @Test fun detailLoading() = tab(Tab.HISTORY) { ActivityDetailScreen(ActivityDetailUiState(), onBack = {}) }
 
-    @Test fun setup() = paparazzi.snapshot { RunbumTheme { LoginScreen(LoginUiState()) } }
+    @Test fun setup() = paparazzi.snapshot { RondeTheme { LoginScreen(LoginUiState()) } }
 
-    @Test fun setupApiKey() = paparazzi.snapshot { RunbumTheme { LoginScreen(LoginUiState(apiKeyOpen = true)) } }
+    @Test fun setupApiKey() = paparazzi.snapshot { RondeTheme { LoginScreen(LoginUiState(apiKeyOpen = true)) } }
 
     @Test fun signedInOAuth() = tab(Tab.SETTINGS) { SettingsScreen(SettingsUiState(settings = oauth)) }
 

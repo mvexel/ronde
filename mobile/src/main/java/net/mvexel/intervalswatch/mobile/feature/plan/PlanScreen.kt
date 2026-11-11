@@ -63,7 +63,7 @@ import java.util.Locale
 @Composable
 fun PlanRoute(vm: PlanViewModel, onOpen: (Long) -> Unit) {
     val st by vm.state.collectAsStateWithLifecycle()
-    PlanScreen(st, onOpen = onOpen, onTogglePinned = vm::togglePinned, onToggleHidden = vm::toggleHidden, onToggleShowHidden = vm::toggleShowHidden, onSync = vm::sync)
+    PlanScreen(st, onOpen = onOpen, onTogglePinned = vm::togglePinned, onToggleHidden = vm::toggleHidden, onSync = vm::sync)
 }
 
 internal fun Workout.date(): LocalDate? = runCatching { LocalDateTime.parse(startLocal).toLocalDate() }.getOrNull()
@@ -88,7 +88,6 @@ fun PlanScreen(
     onOpen: (Long) -> Unit = {},
     onTogglePinned: (PlanItem) -> Unit = {},
     onToggleHidden: (PlanItem) -> Unit = {},
-    @Suppress("UNUSED_PARAMETER") onToggleShowHidden: () -> Unit = {},
     onSync: () -> Unit = {},
     today: LocalDate = LocalDate.now(),
 ) {

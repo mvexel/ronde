@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import net.mvexel.intervalswatch.mobile.RingArc
@@ -23,12 +25,19 @@ import kotlin.math.max
 
 /**
  * The result ring: the workout ring with the outcome drawn in. [verdicts] runs parallel to [steps]
- * (`PlanAnalysis.steps.map { it.verdict }`). A work step whose verdict is set and not [Verdict.IN] is drawn
- * hollow (a missed rep); everything else is filled. With [verdicts] null it is the plain plan ring.
+ * (`PlanAnalysis.steps.map { it.verdict }`), and so does [reached] (false for a step the run never got to). A
+ * missed rep (see [missedReps]) is drawn hollow; everything else is filled. With [verdicts] null and nothing
+ * unreached it is the plain plan ring. Used by History rows (48 dp) and the Activity Detail hero (164 dp).
  */
 @Composable
-fun ResultRing(steps: List<WorkoutStep>, verdicts: List<Verdict?>?, modifier: Modifier = Modifier, size: Dp = 48.dp) =
-    RingDisc(steps, modifier, size = size, verdicts = verdicts)
+fun ResultRing(
+    steps: List<WorkoutStep>,
+    verdicts: List<Verdict?>?,
+    modifier: Modifier = Modifier,
+    size: Dp = 48.dp,
+    reached: List<Boolean>? = null,
+    contentDescription: String? = null,
+) = RingDisc(steps, modifier, size = size, missed = missedReps(steps, verdicts, reached), contentDescription = contentDescription)
 
 /**
  * The workout ring on its black disc (the launcher icon): work thick amber, easy thin cyan, warm-up and
@@ -40,15 +49,17 @@ fun RingDisc(
     steps: List<WorkoutStep>,
     modifier: Modifier = Modifier,
     size: Dp = 48.dp,
-    verdicts: List<Verdict?>? = null,
+    missed: List<Boolean>? = null,
     disc: Color = RondeTheme.colors.ringDisc,
     tick: Boolean = true,
+    contentDescription: String? = null,
     center: (@Composable () -> Unit)? = null,
 ) {
     val c = RondeTheme.colors
     val kinds = RingKindColors(c.work, c.recovery, c.warmup)
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(size)) { drawRing(steps, verdicts, kinds, disc, c.tick, tick && center == null) }
+    val described = contentDescription?.let { d -> Modifier.semantics { this.contentDescription = d } } ?: Modifier
+    Box(modifier.size(size).then(described), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(size)) { drawRing(steps, missed, kinds, disc, c.tick, tick && center == null) }
         center?.invoke()
     }
 }
@@ -62,19 +73,28 @@ data class RingKindColors(val work: Color, val recovery: Color, val warmup: Colo
     }
 }
 
-/** "3 of 5": work steps in range and work steps judged, or null when nothing was judged. */
-fun roundsInRange(steps: List<WorkoutStep>, verdicts: List<Verdict?>?): Pair<Int, Int>? {
-    if (verdicts == null) return null
-    val judged = steps.indices.filter { steps[it].kind == StepKind.ACTIVE && verdicts.getOrNull(it) != null }
-    if (judged.isEmpty()) return null
-    return judged.count { verdicts[it] == Verdict.IN } to judged.size
+/**
+ * "3 of 5": work steps in range, of work steps judged or never reached (an unreached rep counts as missed). Null
+ * when nothing was judged.
+ */
+fun roundsInRange(steps: List<WorkoutStep>, verdicts: List<Verdict?>?, reached: List<Boolean>? = null): Pair<Int, Int>? {
+    if (verdicts == null && reached == null) return null
+    val judged = steps.indices.filter { i ->
+        steps[i].kind == StepKind.ACTIVE && (verdicts?.getOrNull(i) != null || reached?.getOrNull(i) == false)
+    }
+    if (judged.isEmpty() || judged.none { verdicts?.getOrNull(it) != null }) return null
+    return judged.count { verdicts?.getOrNull(it) == Verdict.IN } to judged.size
 }
 
-/** True when the arc at [i] is a missed work rep. */
-internal fun isMissed(steps: List<WorkoutStep>, verdicts: List<Verdict?>?, i: Int): Boolean {
-    val v = verdicts?.getOrNull(i) ?: return false
-    return steps[i].kind == StepKind.ACTIVE && v != Verdict.IN
-}
+/**
+ * Per step: true for a missed work rep, drawn hollow. A rep is missed when its verdict is set and not
+ * [Verdict.IN], or when the run never reached it.
+ */
+fun missedReps(steps: List<WorkoutStep>, verdicts: List<Verdict?>?, reached: List<Boolean>? = null): List<Boolean> =
+    steps.indices.map { i ->
+        val v = verdicts?.getOrNull(i)
+        steps[i].kind == StepKind.ACTIVE && ((v != null && v != Verdict.IN) || reached?.getOrNull(i) == false)
+    }
 
 /**
  * Geometry from docs/phone/design/tools/gen.py `ring()`: stroke 11 % of the size for work, 55 % of that for
@@ -82,7 +102,7 @@ internal fun isMissed(steps: List<WorkoutStep>, verdicts: List<Verdict?>?, i: In
  */
 fun DrawScope.drawRing(
     steps: List<WorkoutStep>,
-    verdicts: List<Verdict?>?,
+    missed: List<Boolean>?,
     kinds: RingKindColors,
     disc: Color,
     tickColor: Color,
@@ -102,7 +122,7 @@ fun DrawScope.drawRing(
         val w = if (a.kind == StepKind.ACTIVE) full else full * 0.55f
         val color = kinds.of(a.kind)
         drawArc(color, a.start - 90f, a.sweep, useCenter = false, topLeft = topLeft, size = box, style = Stroke(w, cap = StrokeCap.Butt))
-        if (steps.isNotEmpty() && isMissed(steps, verdicts, i) && a.sweep > 2.2f) {
+        if (steps.isNotEmpty() && missed?.getOrNull(i) == true && a.sweep > 2.2f) {
             drawArc(
                 disc.takeIf { it.alpha > 0f } ?: Color.Black, a.start - 90f + 0.9f, a.sweep - 1.8f, useCenter = false,
                 topLeft = topLeft, size = box, style = Stroke(w - 2 * outline, cap = StrokeCap.Butt),

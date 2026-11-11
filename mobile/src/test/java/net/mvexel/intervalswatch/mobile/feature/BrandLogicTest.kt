@@ -5,7 +5,7 @@ import net.mvexel.intervalswatch.mobile.feature.history.HistoryFilter
 import net.mvexel.intervalswatch.mobile.feature.history.HistoryRow
 import net.mvexel.intervalswatch.mobile.feature.history.statLine
 import net.mvexel.intervalswatch.mobile.feature.history.weekGroups
-import net.mvexel.intervalswatch.mobile.ui.isMissed
+import net.mvexel.intervalswatch.mobile.ui.missedReps
 import net.mvexel.intervalswatch.mobile.ui.roundsInRange
 import net.mvexel.intervalswatch.shared.StepKind
 import net.mvexel.intervalswatch.shared.Verdict
@@ -24,11 +24,19 @@ class BrandLogicTest {
     @Test fun resultRingCountsAndHollowsOnlyMissedWork() {
         val v = listOf(null, Verdict.IN, Verdict.SLOW, Verdict.FAST, null)
         assertEquals(1 to 2, roundsInRange(steps, v))
-        assertFalse(isMissed(steps, v, 1))
-        assertFalse(isMissed(steps, v, 2)) // a rest step is never hollow
-        assertTrue(isMissed(steps, v, 3))
+        // A rest step is never hollow, even with a verdict.
+        assertEquals(listOf(false, false, false, true, false), missedReps(steps, v))
         assertNull(roundsInRange(steps, null))
-        assertFalse(isMissed(steps, null, 3))
+        assertEquals(List(5) { false }, missedReps(steps, null))
+    }
+
+    @Test fun unreachedRepIsHollowAndCountsAsMissed() {
+        val v = listOf(null, Verdict.IN, null, null, null)
+        val reached = listOf(true, true, true, false, false)
+        assertEquals(listOf(false, false, false, true, false), missedReps(steps, v, reached))
+        assertEquals(1 to 2, roundsInRange(steps, v, reached))
+        // Nothing judged at all: no "rounds in range" line.
+        assertNull(roundsInRange(steps, List(5) { null }, reached))
     }
 
     private fun a(id: String, type: String, start: String, ronde: Boolean = false) =
