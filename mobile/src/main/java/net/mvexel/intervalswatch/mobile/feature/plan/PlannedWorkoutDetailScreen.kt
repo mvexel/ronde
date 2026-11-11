@@ -72,7 +72,7 @@ fun PlannedWorkoutDetailScreen(st: PlannedWorkoutDetailUiState, onBack: () -> Un
         item {
             SurfaceCard {
                 w.steps.forEachIndexed { i, s ->
-                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     StepRow(w, s)
                 }
             }

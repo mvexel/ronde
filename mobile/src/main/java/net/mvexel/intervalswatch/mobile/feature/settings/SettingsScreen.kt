@@ -12,10 +12,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,7 +30,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.mvexel.intervalswatch.mobile.AuthType
 import net.mvexel.intervalswatch.mobile.Settings
 import net.mvexel.intervalswatch.mobile.ui.NavRow
-import net.mvexel.intervalswatch.mobile.ui.Overline
+import net.mvexel.intervalswatch.mobile.ui.RondeSwitch
+import net.mvexel.intervalswatch.mobile.ui.ScreenHeader
+import net.mvexel.intervalswatch.mobile.ui.SectionHeader
+import net.mvexel.intervalswatch.mobile.ui.SurfaceCard
 
 @Composable
 fun SettingsRoute(vm: SettingsViewModel, onLogin: () -> Unit, onWatchScreens: () -> Unit) {
@@ -54,31 +56,35 @@ fun SettingsScreen(
 ) {
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item { Text("Settings", style = MaterialTheme.typography.headlineSmall) }
-        item { Overline("Account") }
+        item { ScreenHeader("Settings") }
+        item { SectionHeader("Account") }
         item { AccountCard(st, onLogin = onLogin, onLogout = onLogout) }
-        item { Overline("Sync") }
+        item { SectionHeader("Sync", modifier = Modifier.padding(top = 12.dp)) }
         item {
             if (st.editingSync) SyncSettingsForm(st.settings, onSave = onSave, onCancel = onCancelSync, busy = st.busy)
-            else NavRow("Sync settings", onEditSync)
+            else NavRow("Sync settings", onEditSync, caption = syncCaption(st.settings))
         }
-        item { Overline("Watch behaviour") }
-        item { NavRow("Watch screens & alerts", onWatchScreens) }
+        item { SectionHeader("Watch behaviour", modifier = Modifier.padding(top = 12.dp)) }
+        item { NavRow("Watch screens & alerts", onWatchScreens, caption = "Fields, pace window, buzz strength") }
     }
 }
+
+/** "7 days ahead · every 4 hours" */
+internal fun syncCaption(s: Settings): String =
+    listOf("${s.daysAhead} days ahead", if (s.autoSync) "every 4 hours" else "manual only").joinToString(" · ")
 
 /** Who is signed in, how, and the way out. A 401 turns it into "Log in again". */
 @Composable
 internal fun AccountCard(st: SettingsUiState, onLogin: () -> Unit, onLogout: () -> Unit) {
     val s = st.settings
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    SurfaceCard {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (s.authType == AuthType.OAUTH) {
                 Text(s.athleteName.ifBlank { "intervals.icu" }, style = MaterialTheme.typography.titleMedium)
-                Text("Athlete ${s.athleteId}", style = MaterialTheme.typography.bodySmall)
+                Text("Athlete ${s.athleteId} · intervals.icu login", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             } else {
                 Text("Signed in with API key", style = MaterialTheme.typography.titleMedium)
             }
@@ -88,14 +94,13 @@ internal fun AccountCard(st: SettingsUiState, onLogin: () -> Unit, onLogout: () 
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (st.authExpired) {
                     Button(onClick = onLogin, enabled = !st.busy) { Text("Log in again") }
                 } else if (s.authType == AuthType.API_KEY) {
                     Button(onClick = onLogin, enabled = !st.busy) { Text("Log in with intervals.icu") }
                 }
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = onLogout, enabled = !st.busy) { Text("Log out") }
+                OutlinedButton(onClick = onLogout, enabled = !st.busy) { Text("Log out") }
             }
         }
     }
@@ -112,7 +117,7 @@ private fun SyncSettingsForm(initial: Settings, onSave: (Settings) -> Unit, onCa
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = auto, onCheckedChange = { auto = it })
+            RondeSwitch(checked = auto, onCheckedChange = { auto = it })
             Spacer(Modifier.width(8.dp))
             Text("Sync in the background every 4 hours")
         }

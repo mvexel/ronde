@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark: direction B night ground. -->
+    <style name="Theme.Ronde" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0E0F12</item>
+        <item name="android:colorBackground">#0E0F12</item>
+        <item name="android:statusBarColor">#0E0F12</item>
+        <item name="android:navigationBarColor">#16171A</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>
