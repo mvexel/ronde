@@ -33,6 +33,8 @@ class AppSession(
     context: Context,
     private val scope: CoroutineScope,
     private val prefsDao: PlannedWorkoutPrefsDao,
+    /** Runs after the credential is cleared, e.g. to wipe cached History (another account may log in next). */
+    private val onLogout: suspend () -> Unit = {},
 ) : Session {
     private val app = context.applicationContext
     private val store = SettingsStore(app)
@@ -83,6 +85,7 @@ class AppSession(
         scope.launch {
             _state.update { it.copy(busy = true) }
             store.logout()
+            runCatching { onLogout() }
             SyncWorker.schedule(app, false)
             WatchSync.pushLoggedIn(app, false)
             _state.update { it.copy(settings = Settings(), workouts = emptyList(), busy = false, authExpired = false, status = null) }

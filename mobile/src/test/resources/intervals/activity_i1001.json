@@ -1,0 +1,27 @@
+{
+  "id": "i1001",
+  "name": "Tempo 3x10'",
+  "type": "Run",
+  "start_date_local": "2026-11-10T07:02:11",
+  "distance": 10234.5,
+  "moving_time": 3011,
+  "elapsed_time": 3120,
+  "average_speed": 3.399,
+  "average_heartrate": 152,
+  "max_heartrate": 171,
+  "icu_training_load": 64,
+  "stream_types": ["time", "distance", "velocity_smooth", "heartrate", "cadence", "latlng", "altitude"],
+  "paired_event_id": 555001,
+  "external_id": "intervalswatch-1794322931",
+  "source": "OAUTH_CLIENT",
+  "oauth_client_id": "4242",
+  "analyzed": "2026-11-10T15:10:02.123Z",
+  "trainer": false,
+  "icu_intervals": [
+    {"id": 2, "type": "WORK", "label": "Rep 1", "group_id": "600s@3.4", "start_index": 2, "end_index": 4, "start_time": 2, "end_time": 4,
+     "moving_time": 2, "elapsed_time": 2, "distance": 7.0, "average_speed": 3.5, "average_heartrate": 160, "zone": 4, "intensity": 95},
+    {"id": 1, "type": "RECOVERY", "label": "Warmup", "start_index": 0, "end_index": 2, "start_time": 0, "end_time": 2,
+     "moving_time": 2, "elapsed_time": 2, "distance": 5.5, "average_speed": 2.75, "average_heartrate": 130}
+  ],
+  "icu_groups": []
+}

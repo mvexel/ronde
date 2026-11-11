@@ -4,12 +4,19 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import net.mvexel.intervalswatch.mobile.IntervalsApi
 import net.mvexel.intervalswatch.mobile.ScreenSettingsStore
+import net.mvexel.intervalswatch.mobile.SettingsStore
 import net.mvexel.intervalswatch.mobile.data.DataLayerBuzzer
 import net.mvexel.intervalswatch.mobile.data.LibraryRecordingsSource
 import net.mvexel.intervalswatch.mobile.data.RecordingsSource
 import net.mvexel.intervalswatch.mobile.data.WatchBuzzer
+import net.mvexel.intervalswatch.mobile.data.activity.ActivityDetailLoader
+import net.mvexel.intervalswatch.mobile.data.activity.ActivityRemoteSource
 import net.mvexel.intervalswatch.mobile.data.activity.ActivityRepository
+import net.mvexel.intervalswatch.mobile.data.activity.IntervalsActivityDetailLoader
+import net.mvexel.intervalswatch.mobile.data.activity.IntervalsActivitySource
+import net.mvexel.intervalswatch.mobile.data.activity.RecordingLibraryFitSource
 import net.mvexel.intervalswatch.mobile.data.activity.RoomActivityRepository
 import net.mvexel.intervalswatch.mobile.data.db.PlannedWorkoutPrefsDao
 import net.mvexel.intervalswatch.mobile.data.db.RondeDatabase
@@ -23,8 +30,16 @@ class AppContainer private constructor(context: Context) {
 
     val database: RondeDatabase by lazy { RondeDatabase.build(app) }
     val prefsDao: PlannedWorkoutPrefsDao get() = database.plannedWorkoutPrefs()
-    val activityRepository: ActivityRepository by lazy { RoomActivityRepository(database.activities(), database.streams()) }
-    val session: Session by lazy { AppSession(app, scope, prefsDao) }
+    private val settingsStore by lazy { SettingsStore(app) }
+    private val activitySource: ActivityRemoteSource by lazy { IntervalsActivitySource(IntervalsApi()) { settingsStore.current() } }
+    val activityRepository: ActivityRepository by lazy {
+        RoomActivityRepository(database.activities(), database.streams(), activitySource, database.syncState())
+    }
+    /** Activity Detail data: Room cache, the kept FIT for Ronde runs, else intervals.icu. */
+    val activityDetailLoader: ActivityDetailLoader by lazy {
+        IntervalsActivityDetailLoader(database.activities(), database.streams(), database.details(), activitySource, RecordingLibraryFitSource(app))
+    }
+    val session: Session by lazy { AppSession(app, scope, prefsDao) { activityRepository.clear() } }
     val recordings: RecordingsSource by lazy { LibraryRecordingsSource(app) }
     val screenSettings: ScreenSettingsStore by lazy { ScreenSettingsStore(app) }
     val buzzer: WatchBuzzer by lazy { DataLayerBuzzer(app) }
