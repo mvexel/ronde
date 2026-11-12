@@ -1,0 +1,9 @@
+[
+  {"type": "time", "name": null, "data": [0, 1, 2, 3, 4, 5], "data2": null, "valueTypeIsArray": false, "anomalies": null, "custom": false, "allNull": false},
+  {"type": "velocity_smooth", "data": [0.0, 2.8, 3.4, null, 3.6, 3.5], "valueTypeIsArray": false, "custom": false, "allNull": false},
+  {"type": "heartrate", "data": [120, 125, 150, 158, 162, 161], "valueTypeIsArray": false, "custom": false, "allNull": false},
+  {"type": "distance", "data": [0.0, 2.8, 6.2, 9.7, 13.3, 16.8], "valueTypeIsArray": false, "custom": false, "allNull": false},
+  {"type": "cadence", "data": [0, 84, 88, 90, 90, 89], "valueTypeIsArray": false, "custom": false, "allNull": false},
+  {"type": "latlng", "data": [40.7600, 40.7601, 40.7602, 40.7603, 40.7604, 40.7605],
+   "data2": [-111.8900, -111.8901, -111.8902, -111.8903, -111.8904, -111.8905], "valueTypeIsArray": true, "custom": false, "allNull": false}
+]

@@ -1,4 +1,4 @@
-package net.mvexel.intervalswatch.mobile
+package net.mvexel.intervalswatch.mobile.feature.watch
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -23,8 +23,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,10 +37,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.CompositionLocalProvider
+import net.mvexel.intervalswatch.mobile.ui.BackHeader
+import net.mvexel.intervalswatch.mobile.ui.RondeSwitch
+import net.mvexel.intervalswatch.mobile.ui.SectionHeader
 import net.mvexel.intervalswatch.shared.BigNumber
+import net.mvexel.intervalswatch.shared.ColourBand
+import net.mvexel.intervalswatch.shared.CueRow
 import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.PACE_WINDOWS
 import net.mvexel.intervalswatch.shared.withPaceWindow
+import net.mvexel.intervalswatch.shared.withPacedWindow
 import net.mvexel.intervalswatch.shared.Field
 import net.mvexel.intervalswatch.shared.ScreenSettings
 import net.mvexel.intervalswatch.shared.Slot
@@ -78,10 +85,7 @@ internal fun WatchScreensScreen(
     fun editSport(edit: (SportSettings) -> SportSettings) = onEdit { it.withSport(sport, edit) }
 
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("‹ Back") }
-            Text("Watch screens & alerts", style = MaterialTheme.typography.titleMedium)
-        }
+        BackHeader("Watch screens & alerts", onBack)
         Segmented(listOf("Run" to Sport.RUN, "Ride" to Sport.RIDE), sport) { sport = it }
 
         RoundPreview(profile, sport) { picking = Target.StepSlot(it) }
@@ -104,6 +108,10 @@ internal fun WatchScreensScreen(
             PACE_WINDOWS.map { "$it s" to it }, profile.paceWindowSec,
             label = "Pace smoothing window",
         ) { v -> editSport { it.withPaceWindow(v) } }
+        if (sport == Sport.RUN) Segmented(
+            PACE_WINDOWS.map { "$it s" to it }, profile.pacedWindowSec,
+            label = "Paced-run pace window",
+        ) { v -> editSport { it.withPacedWindow(v) } }
 
         HorizontalDivider()
         Section("All sports")
@@ -112,6 +120,14 @@ internal fun WatchScreensScreen(
             label = "Buzz strength",
         ) { v -> onEdit { it.copy(buzzStrength = v) } }
         OutlinedButton(onClick = onTestBuzz, enabled = watchConnected) { Text("Test buzzes on the watch") }
+        Segmented(
+            listOf("Number" to CueRow.NUMBER, "Words" to CueRow.WORDS), settings.cueRow,
+            label = "Cue row (paced runs)",
+        ) { v -> onEdit { it.copy(cueRow = v) } }
+        Segmented(
+            listOf("Off" to ColourBand.OFF, "On" to ColourBand.ON), settings.colourBand,
+            label = "Colour band when off pace",
+        ) { v -> onEdit { it.copy(colourBand = v) } }
         Segmented(
             listOf("intervals.icu" to UnitsSetting.FROM_INTERVALS, "km" to UnitsSetting.KM, "mi" to UnitsSetting.MI),
             settings.units, label = "Units",
@@ -148,7 +164,7 @@ internal fun WatchScreensScreen(
 }
 
 @Composable
-private fun Section(title: String) = Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun Section(title: String) = SectionHeader(title, modifier = Modifier.padding(top = 8.dp))
 
 /** Selected state is ink, never cyan (visual-design §6). */
 @Composable
@@ -178,13 +194,7 @@ private fun <T> Segmented(options: List<Pair<String, T>>, selected: T, label: St
 private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(
-            checked, onChange,
-            colors = SwitchDefaults.colors(
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-        )
+        RondeSwitch(checked, onChange)
     }
 }
 
@@ -223,28 +233,35 @@ private fun FieldPicker(sport: Sport, current: Field, onDismiss: () -> Unit, onP
 @Composable
 internal fun RoundPreview(profile: SportSettings, sport: Sport, onSlot: (Slot) -> Unit) {
     val dim = Color.White.copy(alpha = 0.45f)
+    // A picture of the watch: the watch ignores the phone's font size, so the preview does too. With sp text in a
+    // fixed dp circle, a phone font scale above 1 pushed the slots into the bezel.
+    val d = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(d.density, fontScale = 1f)) {
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(Modifier.size(220.dp).clip(CircleShape).background(Color.Black), contentAlignment = Alignment.Center) {
             Canvas(Modifier.size(220.dp)) { drawCircle(dim, style = Stroke(5.dp.toPx()), radius = size.minDimension / 2 - 3.dp.toPx()) }
             // Fixed zones, dimmed: top edge, partner, hero, target line.
             Column(Modifier.size(220.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(10.dp))
                 Text("2/4 TEMPO", color = dim, fontSize = 11.sp)
-                Spacer(Modifier.height(8.dp))
                 val partner = if (profile.bigNumber == BigNumber.LIVE_VALUE) "2:10" else "4:28"
                 val hero = if (profile.bigNumber == BigNumber.LIVE_VALUE) "4:28" else "2:10"
-                Text(partner, color = dim, fontSize = 20.sp)
-                Text(hero, color = dim, fontSize = 34.sp)
-                Text(if (sport == Sport.RIDE) "240–260 W" else "4:39–4:25", color = dim, fontSize = 14.sp)
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(partner, color = dim, fontSize = 17.sp)
+                Text(hero, color = dim, fontSize = 28.sp, lineHeight = 30.sp)
+                Text(if (sport == Sport.RIDE) "240–260 W" else "4:39–4:25", color = dim, fontSize = 12.sp)
+                Spacer(Modifier.height(2.dp))
+                // Inset so the boxes stay inside the circle where it curves in.
+                Row(Modifier.fillMaxWidth().padding(horizontal = 30.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     SlotBox(profile.flankLeft, sport) { onSlot(Slot.FLANK_LEFT) }
                     SlotBox(profile.flankRight, sport) { onSlot(Slot.FLANK_RIGHT) }
                 }
-                Spacer(Modifier.height(4.dp))
+            }
+            // The bottom edge slot sits on the curve, as on the watch, inside the 5 dp ring.
+            Box(Modifier.size(220.dp).padding(bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
                 SlotBox(profile.bottomEdge, sport, compact = true) { onSlot(Slot.BOTTOM_EDGE) }
             }
         }
+    }
     }
 }
 
@@ -257,7 +274,7 @@ private fun SlotBox(field: Field, sport: Sport, compact: Boolean = false, onClic
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(field.label, color = Color.White.copy(alpha = 0.7f), fontSize = 9.sp)
-        Text(field.sample(sport), color = Color.White, fontSize = if (compact) 13.sp else 17.sp)
+        Text(field.sample(sport), color = Color.White, fontSize = if (compact) 12.sp else 16.sp)
     }
 }
 

@@ -46,6 +46,7 @@ import net.mvexel.intervalswatch.shared.Field
 import net.mvexel.intervalswatch.shared.Format
 import net.mvexel.intervalswatch.shared.ScreenSettings
 import net.mvexel.intervalswatch.shared.WatchPage
+import net.mvexel.intervalswatch.shared.StepLength
 import net.mvexel.intervalswatch.shared.WorkoutStep
 import net.mvexel.intervalswatch.shared.movePage
 import net.mvexel.intervalswatch.shared.pagesFor
@@ -60,7 +61,6 @@ import net.mvexel.intervalswatch.wear.ui.kindColor
 private const val DETENT_PX = 40f
 
 /** What a step with neither time nor a known length weighs on the ring, in seconds. */
-private const val NOMINAL_STEP_SEC = 120.0
 
 /** Gap between ring arcs: 2.4° up to 12 steps, 1.6° above (visual-design.md §5.2). */
 private fun gapDeg(steps: Int) = if (steps > 12) 1.6f else 2.4f
@@ -68,10 +68,10 @@ private fun gapDeg(steps: Int) = if (steps > 12) 1.6f else 2.4f
 /** One arc of the Workout ring: where it starts and how long it is, in degrees from 12 o'clock. */
 internal data class RingSegment(val index: Int, val startDeg: Float, val sweepDeg: Float)
 
-/** Splits the circle between [steps] by duration (distance and lap steps count as [NOMINAL_STEP_SEC]), leaving a small gap between arcs. */
+/** Splits the circle between [steps] by estimated duration ([StepLength]: distance steps by their pace), leaving a small gap between arcs. */
 internal fun ringSegments(steps: List<WorkoutStep>): List<RingSegment> {
     if (steps.isEmpty()) return emptyList()
-    val weights = steps.map { (it.durationSec ?: 0).toDouble().takeIf { d -> d > 0 } ?: NOMINAL_STEP_SEC }
+    val weights = steps.map { StepLength.estimatedSec(it) }
     val total = weights.sum()
     val gap = gapDeg(steps.size)
     val usable = 360f - gap * steps.size

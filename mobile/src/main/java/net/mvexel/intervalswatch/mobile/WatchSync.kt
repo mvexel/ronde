@@ -4,6 +4,8 @@ import android.content.Context
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.tasks.await
+import net.mvexel.intervalswatch.mobile.app.AppContainer
+import net.mvexel.intervalswatch.mobile.data.plan.WatchLink
 import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.SettingsSync
 import net.mvexel.intervalswatch.shared.Sync
@@ -47,16 +49,23 @@ object WatchSync {
             Wearable.getNodeClient(context).connectedNodes.await().map { it.displayName }
         }.getOrDefault(emptyList())
 
-    /** Fetch from intervals.icu and push to the watch. Returns what was sent. */
-    suspend fun syncNow(context: Context, settings: Settings): List<Workout> {
-        val workouts = try {
-            IntervalsApi().plannedWorkouts(settings)
-        } catch (e: AuthExpiredException) {
-            pushLoggedIn(context, false)
-            throw e
-        }
-        pushLoggedIn(context, true)
-        push(context, workouts)
-        return workouts
-    }
+    /**
+     * Fetch from intervals.icu, store, and push to the watch, leaving out what is hidden on the Plan tab (read right
+     * before the push). Returns everything fetched, hidden ones included. Goes through the process-wide
+     * [net.mvexel.intervalswatch.mobile.app.AppContainer.planSync], so it is serialised with every other push.
+     */
+    suspend fun syncNow(context: Context, settings: Settings): List<Workout> =
+        AppContainer.from(context).planSync.sync(settings).workouts
+
+    /** The hidden set is now read inside the sync, right before the push; [hiddenIds] is ignored. */
+    @Deprecated("hiddenIds read before the fetch goes stale; use syncNow(context, settings)", ReplaceWith("syncNow(context, settings)"))
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun syncNow(context: Context, settings: Settings, hiddenIds: Collection<Long>): List<Workout> = syncNow(context, settings)
+}
+
+/** [WatchLink] over the Wear Data Layer. */
+class DataLayerWatchLink(context: Context) : WatchLink {
+    private val app = context.applicationContext
+    override suspend fun push(workouts: List<Workout>) = WatchSync.push(app, workouts)
+    override suspend fun pushLoggedIn(loggedIn: Boolean) = WatchSync.pushLoggedIn(app, loggedIn)
 }

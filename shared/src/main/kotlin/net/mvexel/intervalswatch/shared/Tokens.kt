@@ -14,6 +14,21 @@ object Tokens {
     const val WARMUP = 0xFF96969CL // warm-up and cool-down
     const val SIGNAL = 0xFFFF4066L // off target, errors
 
+    // Paced-run screen (v5-design.md section 3, brand-tokens.json round 2)
+    const val BAND = 0xFF686870L
+    const val PACE_FAST = 0xFFFF5160L // too fast: stretch, chevron, Words word
+    const val PACE_SLOW = 0xFF5586FFL // too slow
+    const val ALERT_FAST_S1 = 0xFF5C171DL // lower-cap wash, ease side, severity 1..3
+    const val ALERT_FAST_S2 = 0xFF7B222AL
+    const val ALERT_FAST_S3 = 0xFF922A33L
+    const val ALERT_SLOW_S1 = 0xFF1A2E5FL // wash, push side
+    const val ALERT_SLOW_S2 = 0xFF263F7EL
+    const val ALERT_SLOW_S3 = 0xFF2E4C96L
+    const val AMBIENT_LINE = 0xFF5A5A5EL
+    const val AMBIENT_WORK = 0xFF916F1EL
+    const val AMBIENT_RECOVERY = 0xFF237DA0L
+    const val AMBIENT_WARMUP = 0xFF747479L
+
     // Phone, light ("paper"); dark reuses GROUND-ish values below
     const val PAPER_GROUND = 0xFFF7F5F0L
     const val PAPER_SURFACE = 0xFFFFFFFFL

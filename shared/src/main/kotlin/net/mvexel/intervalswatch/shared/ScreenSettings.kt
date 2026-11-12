@@ -30,6 +30,23 @@ enum class BuzzStrength { NORMAL, STRONG }
 @Serializable
 enum class UnitsSetting { FROM_INTERVALS, KM, MI }
 
+/** "Cue row" on the paced step page (v5 section 1): how an off-pace verdict is said. Slot swap only, no layout change. */
+@Serializable
+enum class CueRow { NUMBER, WORDS }
+
+/** "Colour band when off pace": the lower-cap wash during a judged alert (v5 section 1, brand ruling 2). */
+@Serializable
+enum class ColourBand { OFF, ON }
+
+/**
+ * Build flag for the owner's first outdoor build: set true so the colour band defaults to ON (the log decides afterwards).
+ * Release default is false. It only changes the default of a setting nobody has touched.
+ */
+object PacedRunDefaults {
+    const val FIRST_RUN_DEFAULTS = false
+    val colourBand: ColourBand get() = if (FIRST_RUN_DEFAULTS) ColourBand.ON else ColourBand.OFF
+}
+
 /** Settings scoped to a sport profile (Run or Ride; Walk and Other use Run). */
 @Serializable
 data class SportSettings(
@@ -41,8 +58,10 @@ data class SportSettings(
     val totalsFields: List<Field>,
     val workoutRingPage: Boolean = true,
     val offTargetBuzz: Boolean = true,
-    /** Rolling-mean window for displayed pace and range alerts: 15, 20 or 30 s (RF01 FR10 a). */
+    /** Rolling-mean window for displayed pace and range alerts on non-paced steps: 15, 20 or 30 s (RF01 FR10 a); the stored default stays 20. */
     val paceWindowSec: Int = 20,
+    /** Display mean window of the paced step page (v5 section 7: 15, 20 or 30 s, default 30). Its own setting so [paceWindowSec] keeps its meaning. */
+    val pacedWindowSec: Int = DEFAULT_PACED_WINDOW,
 ) {
     companion object {
         val RUN_DEFAULT = SportSettings(
@@ -66,6 +85,10 @@ data class ScreenSettings(
     /** Run only: toggle auto-pause for warm-up and cool-down steps. */
     val autoPauseWarmupCooldown: Boolean = false,
     val keepScreenOnDuringWork: Boolean = false,
+    /** Paced step page: Number (default) or Words in the cue row (v5 section 1). */
+    val cueRow: CueRow = CueRow.NUMBER,
+    /** Paced step page: lower-cap wash while off pace; Off in release (v5 section 1). */
+    val colourBand: ColourBand = PacedRunDefaults.colourBand,
     /** Last write wins on sync. */
     val updatedAt: Long = 0,
 ) {

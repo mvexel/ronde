@@ -1,0 +1,24 @@
+{
+  "id": 555001,
+  "start_date_local": "2026-11-10T00:00:00",
+  "category": "WORKOUT",
+  "type": "Run",
+  "name": "Tempo 3x10'",
+  "moving_time": 2400,
+  "external_id": null,
+  "updated": "2026-11-09T20:01:00.000Z",
+  "workout_doc": {
+    "duration": 2400,
+    "threshold_pace": 4.0,
+    "pace_units": "MINS_KM",
+    "target": "PACE",
+    "steps": [
+      {"warmup": true, "duration": 600, "pace": {"start": 70, "end": 80, "units": "%pace"}, "_pace": {"start": 2.8, "end": 3.2}},
+      {"reps": 3, "text": "Tempo", "steps": [
+        {"duration": 600, "pace": {"start": 92, "end": 96, "units": "%pace"}, "_pace": {"start": 3.68, "end": 3.84}},
+        {"duration": 120, "text": "recover", "pace": {"start": 60, "end": 70, "units": "%pace"}, "_pace": {"start": 2.4, "end": 2.8}}
+      ]},
+      {"cooldown": true, "duration": 300, "pace": {"start": 60, "end": 75, "units": "%pace"}, "_pace": {"start": 2.4, "end": 3.0}}
+    ]
+  }
+}

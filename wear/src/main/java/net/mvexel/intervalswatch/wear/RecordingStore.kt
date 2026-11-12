@@ -76,6 +76,9 @@ object RecordingStore {
 
     private fun dir(ctx: Context) = File(ctx.filesDir, "recordings").apply { mkdirs() }
 
+    /** Where the per-second judge log (judge-<date>.csv) goes: next to the FIT files, which `pending` filters by extension. */
+    fun logDir(ctx: Context): File = dir(ctx)
+
     /** An end at 0:00 or a short test is neither saved nor sent. */
     internal fun isWorthSaving(rec: Recording): Boolean =
         rec.samples.isNotEmpty() && rec.timerSec >= MIN_SAVE_ACTIVE_SEC

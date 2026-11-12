@@ -143,6 +143,8 @@ internal fun ActiveWorkout(
     settings: ScreenSettings = ScreenSettings(),
     clock: String = clockNow(),
 ) {
+    // Paced steps (a pace range on a run, walk or other step) have their own page: PacedStepPage.kt.
+    if (usesPacedPage(s)) { PacedStepPage(s, settings, clock); return }
     val ctx = LocalContext.current
     val w = s.workout
     val step = s.step

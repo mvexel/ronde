@@ -22,6 +22,9 @@ import net.mvexel.intervalswatch.shared.BuzzStrength
 import net.mvexel.intervalswatch.shared.withSlot
 import net.mvexel.intervalswatch.shared.withSport
 import net.mvexel.intervalswatch.shared.withPaceWindow
+import net.mvexel.intervalswatch.shared.next
+import net.mvexel.intervalswatch.shared.nextPacedWindow
+import net.mvexel.intervalswatch.shared.withPacedWindow
 import net.mvexel.intervalswatch.shared.nextPaceWindow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -111,18 +114,29 @@ class MainActivity : ComponentActivity() {
     private val ambient = mutableStateOf(false)
     private val ambientTick = mutableStateOf(0)
     private val burnIn = mutableStateOf(false)
+    private val burnInX = mutableStateOf(0)
+    private val burnInY = mutableStateOf(0)
+    private val walk = java.util.Random()
     private val ambientCallback = object : AmbientLifecycleObserver.AmbientLifecycleCallback {
         override fun onEnterAmbient(ambientDetails: AmbientLifecycleObserver.AmbientDetails) {
             burnIn.value = ambientDetails.burnInProtectionRequired
             ambient.value = true
+            ExerciseService.ambient = true
             ambientTick.value++
         }
         override fun onExitAmbient() {
             ambient.value = false
+            ExerciseService.ambient = false
             logWake("exit")
             lifecycleScope.launch { delay(1000); logWake("exit+1s") }
         }
-        override fun onUpdateAmbient() { ambientTick.value++ }
+        override fun onUpdateAmbient() { stepBurnIn(); ambientTick.value++ }
+    }
+
+    /** Paced ambient burn-in protection: a new random-walk offset (at most +/-3 dp) at each ambient update. */
+    private fun stepBurnIn() {
+        burnInX.value = nextBurnInOffset(burnInX.value, walk.nextInt(1000))
+        burnInY.value = nextBurnInOffset(burnInY.value, walk.nextInt(1000))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -138,7 +152,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycle.addObserver(AmbientLifecycleObserver(this, ambientCallback))
-        setContent { RunbumTheme { App(repo, screenSettings, ambient.value, ambientTick.value, burnIn.value) } }
+        setContent { RunbumTheme { App(repo, screenSettings, ambient.value, ambientTick.value, burnIn.value, burnInX.value, burnInY.value) } }
     }
 
     // Wake log (FR10 g): the pace the step page shows, at exit from ambient and 1 s later. Checks outdoors
@@ -164,7 +178,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, ambient: Boolean, ambientTick: Int, burnIn: Boolean) {
+private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, ambient: Boolean, ambientTick: Int, burnIn: Boolean, burnX: Int = 0, burnY: Int = 0) {
     val bundle by repo.bundle.collectAsStateWithLifecycle()
     val phoneLoggedIn by repo.phoneLoggedIn.collectAsStateWithLifecycle()
     val settings by screenSettings.settings.collectAsStateWithLifecycle()
@@ -201,7 +215,8 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
                 // Freeze the session between ambient updates so the dimmed screen isn't redrawn twice a second.
                 // A step change or pause is shown at once; that is a single redraw.
                 val frozen = remember(ambientTick, s.stepIndex, s.paused) { s }
-                AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0)
+                if (isPacedStep(frozen)) PacedAmbient(frozen, burnX, burnY)
+                else AmbientWorkout(frozen, shift = if (burnIn) ambientTick % 3 - 1 else 0)
             }
 
             s != null -> {
@@ -215,6 +230,9 @@ private fun App(repo: WorkoutRepository, screenSettings: ScreenSettingsStore, am
                 onEditSport = { editSport = it },
                 onToggleOffTarget = { sport -> scope.launch { screenSettings.update { it.withSport(sport) { p -> p.copy(offTargetBuzz = !p.offTargetBuzz) } } } },
                 onPaceWindow = { sport -> scope.launch { screenSettings.update { it.withSport(sport) { p -> p.withPaceWindow(nextPaceWindow(p.paceWindowSec)) } } } },
+                onPacedWindow = { scope.launch { screenSettings.update { it.withSport(Sport.RUN) { p -> p.withPacedWindow(nextPacedWindow(p.pacedWindowSec)) } } } },
+                onCueRow = { scope.launch { screenSettings.update { it.copy(cueRow = it.cueRow.next()) } } },
+                onColourBand = { scope.launch { screenSettings.update { it.copy(colourBand = it.colourBand.next()) } } },
                 onBuzzStrength = {
                     val next = if (settings.buzzStrength == BuzzStrength.STRONG) BuzzStrength.NORMAL else BuzzStrength.STRONG
                     playBuzzSample(context, next)

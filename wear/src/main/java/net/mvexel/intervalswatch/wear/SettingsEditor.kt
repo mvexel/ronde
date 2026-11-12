@@ -52,6 +52,7 @@ import net.mvexel.intervalswatch.shared.SportSettings
 import net.mvexel.intervalswatch.shared.label
 import net.mvexel.intervalswatch.shared.pickerFields
 import net.mvexel.intervalswatch.shared.sample
+import net.mvexel.intervalswatch.shared.next
 import net.mvexel.intervalswatch.shared.slot
 import net.mvexel.intervalswatch.shared.stepField
 import net.mvexel.intervalswatch.shared.withSlot
@@ -66,6 +67,9 @@ internal fun SettingsList(
     onToggleOffTarget: (Sport) -> Unit,
     onBuzzStrength: () -> Unit,
     onPaceWindow: (Sport) -> Unit = {},
+    onPacedWindow: () -> Unit = {},
+    onCueRow: () -> Unit = {},
+    onColourBand: () -> Unit = {},
 ) {
     WatchList {
         item { Text("Settings", style = MaterialTheme.typography.title3) }
@@ -78,6 +82,9 @@ internal fun SettingsList(
         item("offRide") { OffTargetToggle("Ride off-target buzz", settings.ride.offTargetBuzz) { onToggleOffTarget(Sport.RIDE) } }
         item("winRun") { SettingsChip("Run pace window", "${settings.run.paceWindowSec} s") { onPaceWindow(Sport.RUN) } }
         item("winRide") { SettingsChip("Ride pace window", "${settings.ride.paceWindowSec} s") { onPaceWindow(Sport.RIDE) } }
+        item("pacedWin") { SettingsChip("Paced-run window", "${settings.run.pacedWindowSec} s", onPacedWindow) }
+        item("cue") { SettingsChip("Cue row", settings.cueRow.label(), onCueRow) }
+        item("band") { SettingsChip("Colour band when off pace", settings.colourBand.label(), onColourBand) }
         item("more") { Text("More on your phone", fontSize = 11.sp, color = Rb.ink2, textAlign = TextAlign.Center) }
     }
 }

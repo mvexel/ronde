@@ -62,8 +62,43 @@ class PaceWindowTest {
 
     @Test fun rejectsOtherValuesAndSyncs() {
         assertEquals(20, SportSettings.RUN_DEFAULT.withPaceWindow(45).paceWindowSec)
-        val s = ScreenSettings().withSport(Sport.RIDE) { it.withPaceWindow(30) }
-        assertEquals(30, ScreenSettings.fromJson(s.toJson()).ride.paceWindowSec)
+        val s = ScreenSettings().withSport(Sport.RIDE) { it.withPaceWindow(15) }
+        assertEquals(15, ScreenSettings.fromJson(s.toJson()).ride.paceWindowSec)
         assertEquals(20, s.run.paceWindowSec)
+    }
+}
+
+class PacedRunSettingsTest {
+    @Test fun releaseDefaultsAreNumberCueAndNoWash() {
+        val d = ScreenSettings()
+        assertEquals(CueRow.NUMBER, d.cueRow)
+        assertEquals(if (PacedRunDefaults.FIRST_RUN_DEFAULTS) ColourBand.ON else ColourBand.OFF, d.colourBand)
+        assertEquals(false, PacedRunDefaults.FIRST_RUN_DEFAULTS)
+        assertEquals("the old setting keeps its stored default", 20, d.run.paceWindowSec)
+        assertEquals(30, d.run.pacedWindowSec)
+    }
+
+    @Test fun cycleAndSync() {
+        assertEquals(CueRow.WORDS, CueRow.NUMBER.next()); assertEquals(CueRow.NUMBER, CueRow.WORDS.next())
+        assertEquals(ColourBand.ON, ColourBand.OFF.next()); assertEquals(ColourBand.OFF, ColourBand.ON.next())
+        val s = ScreenSettings(cueRow = CueRow.WORDS, colourBand = ColourBand.ON)
+        val back = ScreenSettings.fromJson(s.toJson())
+        assertEquals(CueRow.WORDS, back.cueRow); assertEquals(ColourBand.ON, back.colourBand)
+    }
+
+    @Test fun pacedWindowIsItsOwnSettingAndLeavesTheOldOneAlone() {
+        assertEquals(15, nextPacedWindow(30)); assertEquals(20, nextPacedWindow(15)); assertEquals(30, nextPacedWindow(20)); assertEquals(30, nextPacedWindow(7))
+        val s = ScreenSettings().withSport(Sport.RUN) { it.withPacedWindow(15) }
+        val back = ScreenSettings.fromJson(s.toJson())
+        assertEquals(15, back.run.pacedWindowSec); assertEquals(20, back.run.paceWindowSec)
+        assertEquals(30, SportSettings.RUN_DEFAULT.withPacedWindow(45).pacedWindowSec)
+        // a user who explicitly chose 20 before the field existed (default 20 is not written) still has 20
+        assertEquals(20, ScreenSettings.fromJson("""{"run":{"flankRight":"STEP_AVG_PACE","totalsFields":["TOTAL_TIME"]}}""").run.paceWindowSec)
+    }
+
+    @Test fun oldJsonWithoutTheNewFieldsDecodesToDefaults() {
+        val old = ScreenSettings.fromJson("""{"buzzStrength":"STRONG","updatedAt":5}""")
+        assertEquals(CueRow.NUMBER, old.cueRow)
+        assertEquals(PacedRunDefaults.colourBand, old.colourBand)
     }
 }

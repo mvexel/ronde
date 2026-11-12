@@ -68,10 +68,31 @@ fun Field.sample(sport: Sport): String = when (this) {
 /** The allowed pace windows (RF01 FR10 a). */
 val PACE_WINDOWS: List<Int> = listOf(15, 20, 30)
 
+const val DEFAULT_PACE_WINDOW = 20
+
+/** Default display window of the paced step page (v5 section 7). */
+const val DEFAULT_PACED_WINDOW = 30
+
 /** Next window in [PACE_WINDOWS], wrapping; an unknown value snaps to the default 20. */
 fun nextPaceWindow(current: Int): Int {
     val i = PACE_WINDOWS.indexOf(current)
-    return if (i < 0) 20 else PACE_WINDOWS[(i + 1) % PACE_WINDOWS.size]
+    return if (i < 0) DEFAULT_PACE_WINDOW else PACE_WINDOWS[(i + 1) % PACE_WINDOWS.size]
 }
 
-fun SportSettings.withPaceWindow(sec: Int): SportSettings = copy(paceWindowSec = if (sec in PACE_WINDOWS) sec else 20)
+fun SportSettings.withPaceWindow(sec: Int): SportSettings = copy(paceWindowSec = if (sec in PACE_WINDOWS) sec else DEFAULT_PACE_WINDOW)
+
+fun CueRow.next(): CueRow = if (this == CueRow.NUMBER) CueRow.WORDS else CueRow.NUMBER
+
+fun ColourBand.next(): ColourBand = if (this == ColourBand.OFF) ColourBand.ON else ColourBand.OFF
+
+fun CueRow.label(): String = if (this == CueRow.NUMBER) "Number" else "Words"
+
+fun ColourBand.label(): String = if (this == ColourBand.ON) "On" else "Off"
+
+/** Next paced-page window in [PACE_WINDOWS], wrapping; an unknown value snaps to [DEFAULT_PACED_WINDOW]. */
+fun nextPacedWindow(current: Int): Int {
+    val i = PACE_WINDOWS.indexOf(current)
+    return if (i < 0) DEFAULT_PACED_WINDOW else PACE_WINDOWS[(i + 1) % PACE_WINDOWS.size]
+}
+
+fun SportSettings.withPacedWindow(sec: Int): SportSettings = copy(pacedWindowSec = if (sec in PACE_WINDOWS) sec else DEFAULT_PACED_WINDOW)

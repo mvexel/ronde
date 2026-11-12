@@ -13,8 +13,15 @@ data class RecSample(
     val cadence: Int? = null,
 )
 
-/** Wall-clock seconds since start. */
-data class RecLap(val startSec: Double, val endSec: Double, val startM: Double, val endM: Double, val kind: StepKind?)
+/** Wall-clock seconds since start. [stepIndex] is the plan step the lap was recorded for; null in older files. */
+data class RecLap(
+    val startSec: Double,
+    val endSec: Double,
+    val startM: Double,
+    val endM: Double,
+    val kind: StepKind?,
+    val stepIndex: Int? = null,
+)
 
 data class RecPause(val startSec: Double, val endSec: Double)
 
@@ -81,7 +88,10 @@ class RecordingBuilder(
         if (t > p) pauses += RecPause(p, t)
     }
 
-    /** Call on every tick; closes the previous lap when the step index changed. */
+    /**
+     * Call on every tick while a step runs; closes the previous lap when the step index changed. Each lap keeps its
+     * step index, so a step skipped within one tick (or a zero-length lap, which is dropped) does not shift the rest.
+     */
     fun onStep(index: Int, step: WorkoutStep?, t: Double, d: Double) {
         if (index == lapIndex) return
         if (lapIndex >= 0) closeLap(t, d)
@@ -91,15 +101,20 @@ class RecordingBuilder(
         lapStartM = d
     }
 
-    fun build(t: Double, d: Double): Recording {
-        resume(t)
+    /** Call once the plan has run out: closes the last step's lap, so time after the plan is in no lap. */
+    fun finishPlan(t: Double, d: Double) {
         if (lapIndex >= 0) closeLap(t, d)
         lapIndex = -1
+    }
+
+    fun build(t: Double, d: Double): Recording {
+        resume(t)
+        finishPlan(t, d)
         return Recording(name, sport, indoor, startEpochMs, samples.toList(), laps.toList(), pauses.toList(), t, d, eventId)
     }
 
     private fun closeLap(t: Double, d: Double) {
-        if (t > lapStartSec) laps += RecLap(lapStartSec, t, lapStartM, d, lapKind)
+        if (t > lapStartSec) laps += RecLap(lapStartSec, t, lapStartM, d, lapKind, lapIndex)
     }
 }
 
